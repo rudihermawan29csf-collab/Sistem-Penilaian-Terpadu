@@ -89,35 +89,70 @@ function App() {
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      const data = await api.fetchInitialData();
-      if (data) {
-        setStudents(data.students);
-        setTeachers(data.teachers);
-        setAssessmentHistory(data.history);
-        
-        // Ensure settings are correctly typed (numbers to strings for passwords)
-        const loadedSettings = data.settings;
-        
-        // Logic to fallback to default passwords if API returns empty/null
-        const safeAdminPassword = loadedSettings.adminPassword ? String(loadedSettings.adminPassword) : 'admin123';
-        const safeTeacherPassword = loadedSettings.teacherDefaultPassword ? String(loadedSettings.teacherDefaultPassword) : 'guru';
+      try {
+        const data = await api.fetchInitialData();
+        if (data) {
+            // --- CRITICAL FIX: DEDUPLICATION LOGIC ---
+            // Karena data di spreadsheet mungkin bertumpuk (duplicate rows),
+            // kita harus memastikan hanya mengambil data TERBARU (baris terakhir) untuk setiap siswa.
+            // Kita gunakan Map dengan key NIS agar entri lama tertimpa oleh entri baru.
+            
+            const uniqueStudentsMap = new Map<string, Student>();
+            
+            if (Array.isArray(data.students)) {
+                data.students.forEach((s: Student) => {
+                    // Gunakan NIS sebagai key unik. Jika tidak ada NIS, gunakan ID.
+                    // Trim untuk menghapus spasi tidak sengaja.
+                    const key = s.nis ? String(s.nis).trim() : String(s.id);
+                    
+                    // Map.set akan menimpa data lama dengan key yang sama.
+                    // Karena array diproses berurutan, data paling bawah (terbaru) akan menang.
+                    uniqueStudentsMap.set(key, s);
+                });
+            }
+            
+            // Konversi kembali ke array
+            const uniqueStudents = Array.from(uniqueStudentsMap.values());
+            
+            // Sort agar rapi (Kelas dulu, lalu Nama)
+            uniqueStudents.sort((a, b) => {
+                if (a.kelas === b.kelas) return a.name.localeCompare(b.name);
+                return a.kelas.localeCompare(b.kelas);
+            });
 
-        setSettings({
-            ...loadedSettings,
-            adminPassword: safeAdminPassword,
-            teacherDefaultPassword: safeTeacherPassword
-        });
+            setStudents(uniqueStudents);
+            setTeachers(data.teachers || []);
+            setAssessmentHistory(data.history || []);
+            
+            // Load Settings safely
+            if (data.settings) {
+                const loadedSettings = data.settings;
+                const safeAdminPassword = loadedSettings.adminPassword ? String(loadedSettings.adminPassword) : 'admin123';
+                const safeTeacherPassword = loadedSettings.teacherDefaultPassword ? String(loadedSettings.teacherDefaultPassword) : 'guru';
 
-        setSubjectChapterConfigs(data.chapterConfigs);
-        
-        // Update semester from settings
-        setSelectedSemester(data.settings.activeSemester);
-      } else {
-        // Fallback to local dummy data if API fails (or first run offline)
+                setSettings({
+                    ...loadedSettings,
+                    adminPassword: safeAdminPassword,
+                    teacherDefaultPassword: safeTeacherPassword
+                });
+                setSelectedSemester(loadedSettings.activeSemester || 'ganjil');
+            }
+
+            if (data.chapterConfigs) {
+                setSubjectChapterConfigs(data.chapterConfigs);
+            }
+        } else {
+            // Fallback to local data
+            setStudents(initialStudents);
+            setTeachers(initialTeachers);
+        }
+      } catch (error) {
+        console.error("Failed to load initial data", error);
         setStudents(initialStudents);
         setTeachers(initialTeachers);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
     loadData();
   }, []);
@@ -149,10 +184,6 @@ function App() {
         return { name: activeTeacherContext.name, nip: activeTeacherContext.nip };
     }
     if (selectedSubject === 'Pendidikan Agama Islam') {
-        // If PAI but no specific teacher selected (legacy or fallback), use Settings or a default
-        // But since we removed settings inputs, better to default to generic or empty if not found
-        // However, to keep backward compatibility with existing data, we might need a fallback.
-        // Let's assume PAI is also in the teachers list now.
         return { name: settings.teacherName || 'Guru PAI', nip: settings.teacherNip || '-' };
     }
     return { name: '.........................', nip: '.........................' };
@@ -226,16 +257,25 @@ function App() {
       bab1: [], bab2: [], bab3: [], bab4: [], bab5: []
     };
     
+    // Robust mapping for gradesBySubject
     const mappedStudents = classStudents.map(s => {
         let grades = s.grades; // Default PAI
+        
         if (selectedSubject !== 'Pendidikan Agama Islam') {
-            grades = s.gradesBySubject?.[selectedSubject]?.ganjil ? 
-                     s.gradesBySubject[selectedSubject][selectedSemester] as any : 
-                     createEmptySemesterData();
+            // Check for subject existence robustly (handling potential casing issues if needed in future)
+            const subjectData = s.gradesBySubject?.[selectedSubject];
+            
+            if (subjectData && subjectData[selectedSemester]) {
+                grades = subjectData[selectedSemester] as any;
+            } else {
+                grades = createEmptySemesterData();
+            }
         } else {
             grades = s.grades[selectedSemester];
         }
         
+        // Return a temporary object structure that matches what getActiveFields expects
+        // getActiveFields looks at s.grades[semester]
         return {
             ...s,
             grades: {
@@ -250,7 +290,7 @@ function App() {
     return map;
   }, [classStudents, selectedSemester, selectedSubject]);
 
-  // --- HANDLERS (UPDATED WITH API) ---
+  // --- HANDLERS ---
   
   const handleSaveChapterConfig = (newConfig: Record<ChapterKey, boolean>) => {
     const updated = {
@@ -261,10 +301,17 @@ function App() {
     api.saveChapterConfig(selectedSubject, newConfig);
   };
 
-  const handleUpdateSettings = (e: React.FormEvent) => {
+  const handleUpdateSettings = async (e: React.FormEvent) => {
       e.preventDefault();
-      api.saveSettings(settings);
-      alert("Pengaturan berhasil disimpan!");
+      setIsSaving(true);
+      try {
+          await api.saveSettings(settings);
+          alert("Pengaturan berhasil disimpan! \nJika Anda mengubah password, perubahan akan aktif setelah reload.");
+      } catch (error) {
+          alert("Gagal menyimpan pengaturan.");
+      } finally {
+          setIsSaving(false);
+      }
   };
 
   const handleSaveSession = (session: GradingSession) => {
@@ -308,7 +355,7 @@ function App() {
         
         const student = prev[studentIndex];
         
-        // Create Deep Copy of needed structures to avoid mutation
+        // Create Deep Copy of needed structures
         let newGradesBySubject = { ...(student.gradesBySubject || {}) };
         let currentSemesterData: SemesterData;
 
@@ -359,11 +406,11 @@ function App() {
         return newArr;
     });
 
-    // 2. Mark as Unsaved - NO AUTO SAVE
+    // 2. Mark as Unsaved
     setHasUnsavedChanges(true);
   };
 
-  // NEW: Manual Save Function with ID fix
+  // Manual Save Function
   const handleManualSave = async () => {
       setIsSaving(true);
       const changes = Object.keys(pendingSaveData.current);
@@ -378,20 +425,22 @@ function App() {
       try {
           const promises = changes.map(async (key) => {
               const [idStr, subject, semester] = key.split('-');
-              // Reconstruct subject if it contained dashes, e.g. "Bahasa-Indo"
-              // Logic: take substring after first dash and before last dash
+              // Robustly extract subject name (handling dashes in name)
               const subjectVal = key.substring(idStr.length + 1, key.lastIndexOf('-'));
               const semesterVal = semester as SemesterKey;
               
               const data = pendingSaveData.current[key];
               
-              // Pass ID directly as STRING to match spreadsheet format and prevent "stacking/duplication"
-              await api.saveGrade(idStr, subjectVal, semesterVal, data);
+              // Find student to get NIS (fallback to ID if needed)
+              const student = students.find(s => s.id.toString() === idStr);
+              // Use NIS as the key for saving if available, otherwise ID string
+              const keyToSend = student && student.nis ? student.nis : idStr;
+
+              await api.saveGrade(keyToSend, subjectVal, semesterVal, data);
           });
 
           await Promise.all(promises);
 
-          // Clear pending data after successful save
           pendingSaveData.current = {};
           setHasUnsavedChanges(false);
           alert("Data berhasil disimpan ke server!");
@@ -449,18 +498,14 @@ function App() {
   };
 
   const handleImportStudents = async (newStudents: Student[]) => {
-      setIsLoading(true); // Show loading spinner
+      setIsLoading(true);
       try {
-          // Optimistic UI Update
           setStudents(prev => [...prev, ...newStudents]);
-          
-          // Send to Server with chunking (Awaited)
           await api.importStudents(newStudents);
-          
           alert(`BERHASIL: ${newStudents.length} data siswa telah ditambahkan dan disinkronkan ke Spreadsheet.`);
       } catch (error) {
           console.error("Import failed", error);
-          alert("Gagal melakukan sinkronisasi ke server. Silakan cek koneksi internet.");
+          alert("Gagal melakukan sinkronisasi ke server.");
       } finally {
           setIsLoading(false);
       }
@@ -493,11 +538,7 @@ function App() {
       }
   }
 
-  const handleSaveSettings = (newSettings: AppSettings) => {
-      setSettings(newSettings);
-      api.saveSettings(newSettings);
-  }
-
+  // --- FILTERED STUDENTS FOR TABLE ---
   const filteredStudents = useMemo(() => {
     const displayStudents = classStudents.map(s => {
         let grades = s.grades; // Default PAI
@@ -555,29 +596,25 @@ function App() {
     setActiveTab('grades');
   };
 
-  // --- DOWNLOAD HANDLERS (UPDATED) ---
-  
-  // Helper to determine color based on class name
+  // --- DOWNLOAD HANDLERS ---
   const getClassHeaderColor = (className: string) => {
       const cls = className.toUpperCase();
       if (cls.includes('VIII')) {
-         return [249, 168, 37]; // Yellow/Orange (readable) for Grade 8. Check VIII first!
+         return [249, 168, 37]; // Yellow
       } else if (cls.includes('VII')) {
-         return [46, 125, 50]; // Green for Grade 7
+         return [46, 125, 50]; // Green
       } else if (cls.includes('IX')) {
-         return [211, 47, 47]; // Red for Grade 9
+         return [211, 47, 47]; // Red
       }
-      return [66, 133, 244]; // Default Blue
+      return [66, 133, 244]; // Blue
   };
 
   const handleDownloadExcel = () => {
     const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
     const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
 
-    // Prepare Headers
     const headers = ['No', 'NIS', 'Nama Siswa', 'Kelas'];
     
-    // Add Chapter Headers
     visibleKeys.forEach(k => {
         const num = k.replace('bab', '');
         const label = selectedSemester === 'genap' ? `Bab ${parseInt(num) + 5}` : `Bab ${num}`;
@@ -588,7 +625,6 @@ function App() {
     
     headers.push('KTS', 'SAS', 'Nilai Akhir');
 
-    // Prepare Data
     const data = filteredStudents.map((s, idx) => {
         const semesterData = s.grades[selectedSemester];
         const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, currentVisibleChapters);
@@ -629,15 +665,13 @@ function App() {
   };
 
   const handleDownloadPDF = () => {
-      // Landscape orientation with A4 size
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
       const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
       
-      // Determine header color based on selected class
       const headerColor = getClassHeaderColor(selectedClass);
 
-      // Title Header
+      // Header Info
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
       doc.text("LAPORAN NILAI SISWA", 148, 15, { align: "center" });
@@ -648,26 +682,21 @@ function App() {
       doc.text(`Semester: ${selectedSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 35);
       doc.text(`Tahun Ajaran: ${settings.academicYear}`, 14, 40);
 
-      // --- Table Headers ---
-      // Row 1: Groupings
+      // Columns
       const headRow1: any[] = [
         { content: 'No', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
         { content: 'NIS', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
         { content: 'Nama Siswa', rowSpan: 2, styles: { valign: 'middle', halign: 'left' } },
       ];
 
-      // Add Chapter headers (spanning 7 columns each)
       visibleKeys.forEach(k => {
           const num = k.replace('bab', '');
           const label = selectedSemester === 'genap' ? parseInt(num) + 5 : num;
           headRow1.push({ content: `Bab ${label}`, colSpan: 7, styles: { halign: 'center', valign: 'middle' } });
       });
-      // Add Evaluation header (spanning 3 columns)
       headRow1.push({ content: 'Evaluasi Akhir', colSpan: 3, styles: { halign: 'center', valign: 'middle' } });
 
-      // Row 2: Detailed Columns
       const headRow2: any[] = [];
-      
       visibleKeys.forEach(() => {
           ['F1', 'F2', 'F3', 'F4', 'F5', 'S', 'R'].forEach(h => {
              headRow2.push({ content: h, styles: { halign: 'center', cellWidth: 'auto' } }); 
@@ -677,16 +706,11 @@ function App() {
           headRow2.push({ content: h, styles: { halign: 'center' } });
       });
 
-      // --- Table Body ---
       const body = filteredStudents.map((s, idx) => {
           const semesterData = s.grades[selectedSemester];
           const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, currentVisibleChapters);
 
-          const row: any[] = [
-              idx + 1,
-              s.nis,
-              s.name,
-          ];
+          const row: any[] = [idx + 1, s.nis, s.name];
 
           visibleKeys.forEach(k => {
               const grade = semesterData[k];
@@ -697,8 +721,8 @@ function App() {
                   formatNumber(grade.f3) || '-',
                   formatNumber(grade.f4) || '-',
                   formatNumber(grade.f5) || '-',
-                  formatNumber(grade.sum) || '-', // S (Sumatif)
-                  avg !== null ? avg : '-' // R (Rerata)
+                  formatNumber(grade.sum) || '-',
+                  avg !== null ? avg : '-'
               );
           });
 
@@ -707,7 +731,6 @@ function App() {
               formatNumber(semesterData.sas) || '-',
               finalGrade !== null ? finalGrade : '-'
           );
-          
           return row;
       });
 
@@ -717,56 +740,36 @@ function App() {
           body: body,
           theme: 'grid',
           styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' }, 
-          headStyles: { 
-              fillColor: headerColor, // Dynamic Color
-              textColor: 255, 
-              fontSize: 7, 
-              fontStyle: 'bold', 
-              lineWidth: 0.1 
-          },
+          headStyles: { fillColor: headerColor, textColor: 255, fontSize: 7, fontStyle: 'bold', lineWidth: 0.1 },
           columnStyles: {
-             0: { cellWidth: 8 }, // No
-             1: { cellWidth: 15 }, // NIS
-             2: { cellWidth: 35 }, // Nama
+             0: { cellWidth: 8 },
+             1: { cellWidth: 15 },
+             2: { cellWidth: 35 },
           },
           margin: { top: 45, left: 10, right: 10 }
       });
 
-      // --- Signatures ---
+      // Signature Block
       const finalY = (doc as any).lastAutoTable.finalY + 15;
-      
-      if (finalY > 170) {
-          doc.addPage();
-      }
-
+      if (finalY > 170) doc.addPage();
       const signatureY = finalY > 170 ? 20 : finalY; 
-      
-      // Coordinates for center alignment of blocks (Landscape A4: ~297mm width)
-      const leftCenter = 50;  // Center of left block
-      const rightCenter = 240; // Center of right block
+      const leftCenter = 50;
+      const rightCenter = 240;
 
-      // Date (Right Side)
       const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       
       doc.text(`Mojokerto, ${today}`, rightCenter, signatureY, { align: "center" });
-      
       doc.text("Mengetahui,", leftCenter, signatureY, { align: "center" });
       doc.text("Kepala Sekolah", leftCenter, signatureY + 5, { align: "center" });
       doc.text("Guru Mata Pelajaran", rightCenter, signatureY + 5, { align: "center" });
 
-      // Space for signature
       const nameY = signatureY + 35;
-
-      // Names (Centered)
       doc.setFont("helvetica", "bold");
-      // Use settings.principalName for Principal
       doc.text(settings.principalName, leftCenter, nameY, { align: "center" });
-      // Use currentTeacherSignature for Teacher
       doc.text(currentTeacherSignature.name, rightCenter, nameY, { align: "center" });
 
-      // NIPs (Centered)
       doc.setFont("helvetica", "normal");
       doc.text(`NIP. ${settings.principalNip}`, leftCenter, nameY + 5, { align: "center" });
       doc.text(`NIP. ${currentTeacherSignature.nip}`, rightCenter, nameY + 5, { align: "center" });
@@ -786,9 +789,7 @@ function App() {
     );
   }
 
-  // --- RENDER MAIN LAYOUT ---
-
-  // Determine which component to render in the main area
+  // --- RENDER MAIN CONTENT ---
   const renderContent = () => {
     if (activeTab === 'students') {
       return (
@@ -940,10 +941,11 @@ function App() {
               <div className="pt-4 flex justify-end">
                   <button 
                     type="submit"
-                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+                    disabled={isSaving}
+                    className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold shadow-md transition-colors ${isSaving ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
                   >
-                    <Save size={18} />
-                    Simpan Pengaturan
+                    {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                    <span>{isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'}</span>
                   </button>
               </div>
            </form>
