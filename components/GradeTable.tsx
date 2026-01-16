@@ -105,10 +105,10 @@ const GradeTable: React.FC<GradeTableProps> = ({
               <th rowSpan={2} className="p-3 w-12 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                 No
               </th>
-              <th rowSpan={2} className="p-3 w-32 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase sticky left-12 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+              <th rowSpan={2} className="p-3 w-32 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase">
                 NIS
               </th>
-              <th rowSpan={2} className="p-3 min-w-[200px] border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase sticky left-44 z-30 text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+              <th rowSpan={2} className="p-3 min-w-[200px] border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase text-left">
                 Nama Siswa
               </th>
               
@@ -171,14 +171,14 @@ const GradeTable: React.FC<GradeTableProps> = ({
                     
                     return (
                         <tr key={student.id} className="hover:bg-blue-50/20 transition-colors group">
-                           {/* Static Info */}
+                           {/* Static Info - Only Index is sticky now */}
                            <td className="p-3 text-center text-sm text-gray-500 font-medium sticky left-0 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                               {index + 1}
                            </td>
-                           <td className="p-3 text-sm font-mono text-gray-600 sticky left-12 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                           <td className="p-3 text-sm font-mono text-gray-600 border-r border-gray-200">
                               {student.nis}
                            </td>
-                           <td className="p-3 text-sm font-bold text-gray-700 sticky left-44 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10 whitespace-nowrap overflow-hidden text-ellipsis max-w-[250px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]" title={student.name}>
+                           <td className="p-3 text-sm font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap overflow-hidden text-ellipsis max-w-[250px]" title={student.name}>
                               {student.name}
                            </td>
 

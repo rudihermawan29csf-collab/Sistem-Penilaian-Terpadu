@@ -15,7 +15,7 @@ import TeacherMonitoringView from './components/TeacherMonitoringView';
 import ResetDataView from './components/ResetDataView';
 import TeacherDataView from './components/TeacherDataView'; 
 import ChapterConfigModal from './components/ChapterConfigModal';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as api from './services/api'; // Import API service
@@ -892,9 +892,9 @@ function App() {
         {/* Main Content */}
         <div className="flex-1 flex flex-col h-full overflow-hidden relative">
             {/* Header */}
-            <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200 bg-white shrink-0">
+            <div className="min-h-16 flex flex-col justify-center px-6 border-b border-gray-200 bg-white shrink-0 py-3 gap-3">
                <div>
-                  <h2 className="text-xl font-bold text-gray-800">
+                  <h2 className="text-xl font-bold text-gray-800 leading-tight">
                       {activeTab === 'grades' && 'Input Nilai Siswa'}
                       {activeTab === 'students' && 'Data Siswa'}
                       {activeTab === 'teachers' && 'Data Guru'}
@@ -903,7 +903,7 @@ function App() {
                       {activeTab === 'monitoring_tanggungan' && 'Monitoring Tanggungan'}
                       {activeTab === 'monitoring_remidi' && 'Monitoring Remidi'}
                   </h2>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 mt-1">
                       {activeTab === 'grades' && `Kelas ${selectedClass} • ${selectedSubject}`}
                       {activeTab === 'students' && 'Manajemen Data Siswa'}
                       {activeTab === 'teachers' && 'Manajemen Data Guru'}
@@ -913,33 +913,44 @@ function App() {
                </div>
                
                {activeTab === 'grades' && (
-                 <div className="flex items-center space-x-3">
-                    <div className="relative">
+                 <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap">
+                    <div className="relative min-w-[180px]">
                         <select
                             value={selectedSubject}
                             onChange={(e) => setSelectedSubject(e.target.value)}
-                            className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8"
+                            className="w-full bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8"
                         >
                             {availableSubjects.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </div>
-                    <div className="relative">
+                    <div className="relative min-w-[100px]">
                         <select
                             value={selectedClass}
                             onChange={(e) => setSelectedClass(e.target.value)}
-                            className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8"
+                            className="w-full bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8"
                         >
                             {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
+
+                    <div className="relative min-w-[140px]">
+                         <select
+                            value={selectedSemester}
+                            onChange={(e) => setSelectedSemester(e.target.value as SemesterKey)}
+                            className="w-full bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8"
+                        >
+                            <option value="ganjil">Sem. Ganjil</option>
+                            <option value="genap">Sem. Genap</option>
+                        </select>
+                    </div>
                     
-                    <button onClick={handleDownloadPDF} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200 flex items-center gap-1.5 transition-colors shadow-sm" title="Download PDF">
+                    <button onClick={handleDownloadPDF} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200 flex items-center gap-1.5 transition-colors shadow-sm shrink-0" title="Download PDF">
                         <FileText size={18} />
-                        <span className="text-xs font-bold">PDF</span>
+                        <span className="text-xs font-bold hidden sm:inline">PDF</span>
                     </button>
-                    <button onClick={handleDownloadExcel} className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg border border-green-200 flex items-center gap-1.5 transition-colors shadow-sm" title="Download Excel">
+                    <button onClick={handleDownloadExcel} className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg border border-green-200 flex items-center gap-1.5 transition-colors shadow-sm shrink-0" title="Download Excel">
                         <FileSpreadsheet size={18} />
-                        <span className="text-xs font-bold">Excel</span>
+                        <span className="text-xs font-bold hidden sm:inline">Excel</span>
                     </button>
                  </div>
                )}
