@@ -15,7 +15,7 @@ import TeacherMonitoringView from './components/TeacherMonitoringView';
 import ResetDataView from './components/ResetDataView';
 import TeacherDataView from './components/TeacherDataView'; 
 import ChapterConfigModal from './components/ChapterConfigModal';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as api from './services/api'; // Import API service
@@ -605,33 +605,33 @@ function App() {
 
       const signatureY = finalY > 170 ? 20 : finalY; 
       
+      // Coordinates for center alignment of blocks (Landscape A4: ~297mm width)
+      const leftCenter = 50;  // Center of left block
+      const rightCenter = 240; // Center of right block
+
       // Date (Right Side)
       const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       
-      // Left Block (Principal) - Centered at x=50
-      const leftBlockX = 50;
-      doc.text("Mengetahui,", leftBlockX, signatureY, { align: "center" });
-      doc.text("Kepala Sekolah", leftBlockX, signatureY + 5, { align: "center" });
-
-      // Right Block (Teacher) - Centered at x=240
-      const rightBlockX = 240;
-      doc.text(`Mojokerto, ${today}`, rightBlockX, signatureY, { align: "center" });
-      doc.text("Guru Mata Pelajaran", rightBlockX, signatureY + 5, { align: "center" });
+      doc.text(`Mojokerto, ${today}`, rightCenter, signatureY, { align: "center" });
+      
+      doc.text("Mengetahui,", leftCenter, signatureY, { align: "center" });
+      doc.text("Kepala Sekolah", leftCenter, signatureY + 5, { align: "center" });
+      doc.text("Guru Mata Pelajaran", rightCenter, signatureY + 5, { align: "center" });
 
       // Space for signature
       const nameY = signatureY + 35;
 
-      // Names
+      // Names (Centered)
       doc.setFont("helvetica", "bold");
-      doc.text(settings.principalName, leftBlockX, nameY, { align: "center" });
-      doc.text(currentTeacherSignature.name, rightBlockX, nameY, { align: "center" });
+      doc.text(settings.principalName, leftCenter, nameY, { align: "center" });
+      doc.text(currentTeacherSignature.name, rightCenter, nameY, { align: "center" });
 
-      // NIPs
+      // NIPs (Centered)
       doc.setFont("helvetica", "normal");
-      doc.text(`NIP. ${settings.principalNip}`, leftBlockX, nameY + 5, { align: "center" });
-      doc.text(`NIP. ${currentTeacherSignature.nip}`, rightBlockX, nameY + 5, { align: "center" });
+      doc.text(`NIP. ${settings.principalNip}`, leftCenter, nameY + 5, { align: "center" });
+      doc.text(`NIP. ${currentTeacherSignature.nip}`, rightCenter, nameY + 5, { align: "center" });
 
       doc.save(`Nilai_${selectedSubject}_${selectedClass}_${selectedSemester}.pdf`);
   };
@@ -854,8 +854,23 @@ function App() {
                 )}
              </div>
 
-             {/* Footer Group */}
+             {/* Footer Group with User Info */}
              <div className="mt-auto border-t border-gray-200 pt-3">
+                 {/* User Profile Display */}
+                 {!isSidebarCollapsed && (
+                    <div className="px-3 py-2 mb-2 bg-gray-200/50 rounded-lg mx-1 flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                             <User size={16} />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Pengguna</p>
+                             <p className="text-xs font-bold text-gray-700 truncate" title={userRole === 'admin' ? 'Administrator' : currentTeacher?.name || settings.teacherName}>
+                                {userRole === 'admin' ? 'Administrator' : currentTeacher?.name || settings.teacherName}
+                             </p>
+                        </div>
+                    </div>
+                 )}
+
                  <button
                     onClick={() => setIsChapterConfigModalOpen(true)}
                      className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200/60 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}

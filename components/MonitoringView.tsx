@@ -112,8 +112,10 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
     const doc = new jsPDF();
 
     doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
     doc.text(`Laporan Monitoring ${type === 'tanggungan' ? 'Tanggungan' : 'Remidi'}`, 105, 15, { align: "center" });
     doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
     doc.text(`Mata Pelajaran: ${subjectName || '-'}`, 14, 22);
     doc.text(`Semester: ${currentSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 27);
     
@@ -169,31 +171,34 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
     // Signatures
     const signatureY = yPos + 10;
     
+    // Coordinates for center alignment of blocks
+    const leftCenter = 50;  // Center of left block
+    const rightCenter = 160; // Center of right block
+
     // Date
     const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(`Mojokerto, ${today}`, 196, signatureY, { align: "right" });
+    doc.text(`Mojokerto, ${today}`, rightCenter, signatureY, { align: "center" });
 
     // Titles
-    doc.text("Mengetahui,", 14, signatureY + 5);
-    doc.text("Kepala Sekolah", 14, signatureY + 10);
+    doc.text("Mengetahui,", leftCenter, signatureY, { align: "center" });
+    doc.text("Kepala Sekolah", leftCenter, signatureY + 5, { align: "center" });
     
-    doc.text("Guru Mata Pelajaran", 196, signatureY + 10, { align: "right" });
+    doc.text("Guru Mata Pelajaran", rightCenter, signatureY + 5, { align: "center" });
 
     // Space for signature
     const nameY = signatureY + 35;
 
-    // Names
+    // Names (Centered)
     doc.setFont("helvetica", "bold");
-    doc.text(principalName || '.........................', 14, nameY);
-    doc.text(teacherName || '.........................', 196, nameY, { align: "right" });
+    doc.text(principalName || '.........................', leftCenter, nameY, { align: "center" });
+    doc.text(teacherName || '.........................', rightCenter, nameY, { align: "center" });
 
-    // NIPs
+    // NIPs (Centered)
     doc.setFont("helvetica", "normal");
-    doc.text(`NIP. ${principalNip || '.........................'}`, 14, nameY + 5);
-    doc.text(`NIP. ${teacherNip || '.........................'}`, 196, nameY + 5, { align: "right" });
-
+    doc.text(`NIP. ${principalNip || '.........................'}`, leftCenter, nameY + 5, { align: "center" });
+    doc.text(`NIP. ${teacherNip || '.........................'}`, rightCenter, nameY + 5, { align: "center" });
 
     doc.save(`Monitoring_${type}_${subjectName}_${currentSemester}.pdf`);
   };

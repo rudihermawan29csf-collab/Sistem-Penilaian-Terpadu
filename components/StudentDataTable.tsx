@@ -52,36 +52,62 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
+    
     reader.onload = (evt) => {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        try {
+            const arrayBuffer = evt.target?.result;
+            if (!arrayBuffer) return;
 
-        const parsedStudents: Student[] = data.map((row: any, index) => ({
-            id: Date.now() + index,
-            no: index + 1,
-            nis: row['NIS'] ? String(row['NIS']) : '',
-            name: row['Nama'] || '',
-            kelas: row['Kelas'] || '',
-            gender: row['Gender'] === 'P' ? 'P' : 'L',
-            grades: {
-                ganjil: createEmptySemesterData(),
-                genap: createEmptySemesterData()
-            },
-            gradesBySubject: {}
-        })).filter(s => s.name && s.kelas); // Basic validation
-
-        if (parsedStudents.length > 0) {
-            if(window.confirm(`Ditemukan ${parsedStudents.length} data siswa valid. Import sekarang?`)) {
-                onImport(parsedStudents);
+            // Use array buffer which is more robust for web
+            const wb = XLSX.read(arrayBuffer, { type: 'array' });
+            
+            if (wb.SheetNames.length === 0) {
+                alert("File Excel tidak memiliki sheet.");
+                return;
             }
-        } else {
-            alert('Tidak ada data valid ditemukan. Pastikan format sesuai template.');
+
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws);
+
+            if (!data || data.length === 0) {
+                 alert("Data kosong atau format tidak dikenali.");
+                 return;
+            }
+
+            const parsedStudents: Student[] = data.map((row: any, index) => ({
+                id: Date.now() + index + Math.random(), // Ensure unique ID
+                no: index + 1,
+                nis: row['NIS'] ? String(row['NIS']).trim() : '',
+                name: row['Nama'] ? String(row['Nama']).trim() : '',
+                kelas: row['Kelas'] ? String(row['Kelas']).trim().toUpperCase() : '',
+                gender: (row['Gender'] && String(row['Gender']).trim().toUpperCase() === 'P') ? 'P' : 'L',
+                grades: {
+                    ganjil: createEmptySemesterData(),
+                    genap: createEmptySemesterData()
+                },
+                gradesBySubject: {}
+            })).filter(s => s.name && s.kelas && s.nis); // Basic validation: Must have Name, Class, and NIS
+
+            if (parsedStudents.length > 0) {
+                if(window.confirm(`Ditemukan ${parsedStudents.length} data siswa valid. Import sekarang?`)) {
+                    onImport(parsedStudents);
+                }
+            } else {
+                alert('Tidak ada data valid ditemukan. Pastikan kolom "NIS", "Nama", dan "Kelas" terisi sesuai template.');
+            }
+        } catch (error) {
+            console.error("Import Error:", error);
+            alert("Terjadi kesalahan saat membaca file. Pastikan file adalah Excel (.xlsx/.xls) yang valid.");
         }
     };
-    reader.readAsBinaryString(file);
+
+    reader.onerror = () => {
+        alert("Gagal membaca file.");
+    }
+
+    reader.readAsArrayBuffer(file);
+    
     // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -142,93 +168,62 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
                 >
                     <Plus size={16} />
-                    <span>Siswa</span>
+                    Tambah Siswa
                 </button>
             </div>
        </div>
 
        {/* Table */}
-       <div className="relative overflow-auto flex-1 bg-white custom-scrollbar p-0">
-        <table className="border-collapse w-full min-w-max">
-            <thead className="sticky top-0 z-10 bg-[#f9f9fb] shadow-sm">
-            <tr className="border-b border-gray-300 text-left">
-                <th className="p-3 w-16 font-bold text-gray-500 text-xs uppercase tracking-wider text-center sticky left-0 bg-[#f9f9fb]">
-                No
-                </th>
-                <th className="p-3 w-32 font-bold text-gray-500 text-xs uppercase tracking-wider border-r border-gray-200">
-                NIS
-                </th>
-                <th className="p-3 min-w-[250px] font-bold text-gray-500 text-xs uppercase tracking-wider border-r border-gray-200">
-                Nama Lengkap
-                </th>
-                <th className="p-3 w-24 font-bold text-gray-500 text-xs uppercase tracking-wider border-r border-gray-200 text-center">
-                Kelas
-                </th>
-                <th className="p-3 w-24 font-bold text-gray-500 text-xs uppercase tracking-wider text-center">
-                Gender
-                </th>
-                <th className="p-3 w-24 font-bold text-gray-500 text-xs uppercase tracking-wider text-center sticky right-0 bg-[#f9f9fb] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
-                Aksi
-                </th>
-            </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 bg-white">
-            {filteredStudents.length === 0 ? (
+       <div className="flex-1 overflow-auto custom-scrollbar p-6">
+          <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm inline-block min-w-full align-middle">
+            <table className="min-w-full border-collapse">
+              <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold tracking-wider">
                 <tr>
-                <td colSpan={6} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center text-gray-400">
-                        <Search size={32} className="mb-2 opacity-50" />
-                        <p className="text-sm">Tidak ada data siswa ditemukan.</p>
-                    </div>
-                </td>
+                   <th className="p-3 border-r border-gray-200 text-center w-12">No</th>
+                   <th className="p-3 border-r border-gray-200 text-left w-32">NIS</th>
+                   <th className="p-3 border-r border-gray-200 text-left">Nama Siswa</th>
+                   <th className="p-3 border-r border-gray-200 text-center w-16">L/P</th>
+                   <th className="p-3 border-r border-gray-200 text-center w-24">Kelas</th>
+                   <th className="p-3 text-center w-24">Aksi</th>
                 </tr>
-            ) : (
-                filteredStudents.map((student, index) => (
-                <tr key={student.id} className="group hover:bg-blue-50/20 transition-colors">
-                    <td className="p-3 text-center text-sm text-gray-500 font-medium sticky left-0 bg-white group-hover:bg-blue-50/20">
-                    {index + 1}
-                    </td>
-                    <td className="p-3 text-sm font-mono text-gray-600 border-r border-gray-100">
-                    {student.nis}
-                    </td>
-                    <td className="p-3 text-sm font-bold text-gray-700 border-r border-gray-100">
-                    {student.name}
-                    </td>
-                    <td className="p-3 text-center border-r border-gray-100">
-                        <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded">
-                            {student.kelas}
-                        </span>
-                    </td>
-                    <td className="p-3 text-center">
-                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                        student.gender === 'L' 
-                        ? 'bg-blue-50 text-blue-600 border border-blue-100' 
-                        : 'bg-pink-50 text-pink-600 border border-pink-100'
-                    }`}>
-                        {student.gender}
-                    </span>
-                    </td>
-                    <td className="p-3 text-center sticky right-0 bg-white group-hover:bg-blue-50/20 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)]">
-                        <div className="flex items-center justify-center gap-2">
-                            <button 
-                                onClick={() => onEdit(student)}
-                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-colors"
-                            >
-                                <Edit2 size={16} />
-                            </button>
-                            <button 
-                                onClick={() => handleDeleteClick(student.id, student.name)}
-                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-100 rounded transition-colors"
-                            >
-                                <Trash2 size={16} />
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                ))
-            )}
-            </tbody>
-        </table>
+              </thead>
+              <tbody className="divide-y divide-gray-200 bg-white">
+                 {filteredStudents.length === 0 ? (
+                    <tr>
+                       <td colSpan={6} className="p-8 text-center text-gray-400">
+                          Tidak ada data siswa ditemukan.
+                       </td>
+                    </tr>
+                 ) : (
+                    filteredStudents.map((student, index) => (
+                       <tr key={student.id} className="hover:bg-blue-50/30 transition-colors group">
+                          <td className="p-3 text-center text-gray-500 text-sm border-r border-gray-100">{index + 1}</td>
+                          <td className="p-3 font-mono text-gray-600 text-sm border-r border-gray-100">{student.nis}</td>
+                          <td className="p-3 font-medium text-gray-800 text-sm border-r border-gray-100">{student.name}</td>
+                          <td className="p-3 text-center text-gray-600 text-sm border-r border-gray-100">{student.gender}</td>
+                          <td className="p-3 text-center text-gray-600 font-bold text-sm border-r border-gray-100">{student.kelas}</td>
+                          <td className="p-3 text-center">
+                             <div className="flex items-center justify-center gap-2">
+                                <button 
+                                   onClick={() => onEdit(student)}
+                                   className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-colors"
+                                >
+                                   <Edit2 size={16} />
+                                </button>
+                                <button 
+                                   onClick={() => handleDeleteClick(student.id, student.name)}
+                                   className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-100 rounded transition-colors"
+                                >
+                                   <Trash2 size={16} />
+                                </button>
+                             </div>
+                          </td>
+                       </tr>
+                    ))
+                 )}
+              </tbody>
+            </table>
+          </div>
        </div>
     </div>
   );
