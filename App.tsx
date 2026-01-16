@@ -57,7 +57,7 @@ function App() {
     teacherNip: '-',
     principalName: 'Kepala Sekolah',
     principalNip: '-',
-    adminPassword: 'admin',
+    adminPassword: 'admin123',
     teacherDefaultPassword: 'guru'
   });
 
@@ -85,7 +85,20 @@ function App() {
         setStudents(data.students);
         setTeachers(data.teachers);
         setAssessmentHistory(data.history);
-        setSettings(data.settings);
+        
+        // Ensure settings are correctly typed (numbers to strings for passwords)
+        const loadedSettings = data.settings;
+        
+        // Logic to fallback to default passwords if API returns empty/null
+        const safeAdminPassword = loadedSettings.adminPassword ? String(loadedSettings.adminPassword) : 'admin123';
+        const safeTeacherPassword = loadedSettings.teacherDefaultPassword ? String(loadedSettings.teacherDefaultPassword) : 'guru';
+
+        setSettings({
+            ...loadedSettings,
+            adminPassword: safeAdminPassword,
+            teacherDefaultPassword: safeTeacherPassword
+        });
+
         setSubjectChapterConfigs(data.chapterConfigs);
         
         // Update semester from settings
