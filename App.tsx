@@ -1006,7 +1006,7 @@ function App() {
             {/* Content Body */}
             <div className="flex-1 overflow-hidden relative">
                 {activeTab === 'grades' && (
-                    <div className="h-full flex flex-col">
+                    <div className="h-full overflow-y-auto custom-scrollbar flex flex-col bg-white">
                         <GradeTable 
                             students={filteredStudents}
                             selectedSemester={selectedSemester}
@@ -1017,13 +1017,15 @@ function App() {
                             onUpdateScore={handleUpdateScore}
                             isEditable={true} 
                         />
-                        <AssessmentHistory 
-                           history={classHistory}
-                           currentSemester={selectedSemester}
-                           onEdit={handleEditSession}
-                           onDelete={handleDeleteSession}
-                           onResetHistory={handleResetHistory}
-                        />
+                        <div className="pb-10">
+                            <AssessmentHistory 
+                               history={classHistory}
+                               currentSemester={selectedSemester}
+                               onEdit={handleEditSession}
+                               onDelete={handleDeleteSession}
+                               onResetHistory={handleResetHistory}
+                            />
+                        </div>
                     </div>
                 )}
 
