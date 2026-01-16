@@ -412,6 +412,22 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500"><ChevronDown size={18} /></div>
             </div>
 
+            {/* Added Metadata Header Block */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6 shadow-sm flex flex-wrap gap-y-2 gap-x-6">
+               <div>
+                  <p className="text-[10px] uppercase font-bold text-gray-500">Tahun Pelajaran</p>
+                  <p className="text-sm font-semibold text-gray-800">{settings.academicYear}</p>
+               </div>
+               <div>
+                  <p className="text-[10px] uppercase font-bold text-gray-500">Semester</p>
+                  <p className="text-sm font-semibold text-gray-800 capitalize">{selectedSemester}</p>
+               </div>
+               <div>
+                  <p className="text-[10px] uppercase font-bold text-gray-500">Kelas</p>
+                  <p className="text-sm font-semibold text-gray-800">{student.kelas}</p>
+               </div>
+            </div>
+
             {Object.keys(grouped).length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-10 bg-white border border-dashed border-gray-300 rounded-xl text-center">
                     <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-4">

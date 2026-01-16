@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useMemo } from 'react';
 import { Student } from '../types';
 import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter } from 'lucide-react';
@@ -137,8 +136,8 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
             if (parsedStudents.length > 0) {
                 const confirmMsg = `Ditemukan ${parsedStudents.length} data siswa valid.\n(Dilewati: ${skippedCount} baris kosong/rusak)\n\nKlik OK untuk import ke database.`;
                 if(window.confirm(confirmMsg)) {
+                    // Let parent component handle the async API call and loading state
                     onImport(parsedStudents);
-                    alert(`BERHASIL: ${parsedStudents.length} data siswa sedang dikirim ke server.`);
                 }
             } else {
                 alert('GAGAL: Tidak ada data valid ditemukan. Pastikan header kolom Excel adalah: "NIS", "Nama", "Kelas", "Gender".');
@@ -158,12 +157,6 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
     
     // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleDeleteClick = (id: number, name: string) => {
-    if (window.confirm(`Yakin ingin menghapus siswa "${name}"? Data nilai terkait juga akan hilang.`)) {
-        onDelete(id);
-    }
   };
 
   return (
@@ -202,99 +195,127 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     </select>
                     <Filter className="absolute left-3 top-2.5 text-gray-400" size={16} />
                 </div>
-                
-                {/* Actions */}
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                    <input 
-                        type="file" 
-                        accept=".xlsx, .xls" 
-                        className="hidden" 
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                    />
 
-                    <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="p-2 text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors"
-                        title="Import dari Excel"
-                    >
-                        <Upload size={18} />
-                    </button>
-
+                <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                    {/* Template Button */}
                     <button 
                         onClick={handleDownloadTemplate}
-                        className="p-2 text-gray-600 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-colors"
+                        className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-colors"
                         title="Download Template Excel"
                     >
-                        <FileSpreadsheet size={18} />
+                        <FileSpreadsheet size={20} />
                     </button>
 
+                    {/* Import Button */}
+                    <div className="relative">
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileUpload}
+                            accept=".xlsx, .xls"
+                            className="hidden"
+                        />
+                        <button 
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                        >
+                            <Upload size={16} />
+                            <span className="hidden sm:inline">Import</span>
+                        </button>
+                    </div>
+
+                    {/* Add Button */}
                     <button 
                         onClick={onAdd}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm whitespace-nowrap"
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm w-full sm:w-auto justify-center"
                     >
                         <Plus size={16} />
-                        Tambah
+                        <span>Tambah Siswa</span>
                     </button>
                 </div>
             </div>
        </div>
 
-       {/* Table */}
+       {/* Table Content */}
        <div className="flex-1 overflow-auto custom-scrollbar p-6">
-          <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm inline-block min-w-full align-middle">
-            <table className="min-w-full border-collapse">
-              <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold tracking-wider">
-                <tr>
-                   <th className="p-3 border-r border-gray-200 text-center w-12 sticky left-0 bg-gray-50">No</th>
-                   <th className="p-3 border-r border-gray-200 text-left w-32">NIS</th>
-                   <th className="p-3 border-r border-gray-200 text-left">Nama Siswa</th>
-                   <th className="p-3 border-r border-gray-200 text-center w-16">L/P</th>
-                   <th className="p-3 border-r border-gray-200 text-center w-24">Kelas</th>
-                   <th className="p-3 text-center w-24 sticky right-0 bg-gray-50">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                 {filteredStudents.length === 0 ? (
-                    <tr>
-                       <td colSpan={6} className="p-8 text-center text-gray-400">
-                          {students.length === 0 
-                             ? "Belum ada data siswa. Silakan Import atau Tambah Manual." 
-                             : "Tidak ada siswa yang cocok dengan filter pencarian."}
-                       </td>
-                    </tr>
-                 ) : (
-                    filteredStudents.map((student, index) => (
-                       <tr key={student.id} className="hover:bg-blue-50/30 transition-colors group">
-                          <td className="p-3 text-center text-gray-500 text-sm border-r border-gray-100 sticky left-0 bg-white group-hover:bg-blue-50/30">{index + 1}</td>
-                          <td className="p-3 font-mono text-gray-600 text-sm border-r border-gray-100">{student.nis}</td>
-                          <td className="p-3 font-medium text-gray-800 text-sm border-r border-gray-100">{student.name}</td>
-                          <td className="p-3 text-center text-gray-600 text-sm border-r border-gray-100">{student.gender}</td>
-                          <td className="p-3 text-center text-gray-600 font-bold text-sm border-r border-gray-100">{student.kelas}</td>
-                          <td className="p-3 text-center sticky right-0 bg-white group-hover:bg-blue-50/30">
-                             <div className="flex items-center justify-center gap-2">
-                                <button 
-                                   onClick={() => onEdit(student)}
-                                   className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-colors"
-                                   title="Edit Siswa"
-                                >
-                                   <Edit2 size={16} />
-                                </button>
-                                <button 
-                                   onClick={() => handleDeleteClick(student.id, student.name)}
-                                   className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-100 rounded transition-colors"
-                                   title="Hapus Siswa"
-                                >
-                                   <Trash2 size={16} />
-                                </button>
-                             </div>
-                          </td>
-                       </tr>
-                    ))
-                 )}
-              </tbody>
-            </table>
-          </div>
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-left border-collapse">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500 font-bold sticky top-0 z-10">
+                        <tr>
+                            <th className="px-6 py-4 border-b border-gray-200 w-16 text-center">No</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-32">NIS</th>
+                            <th className="px-6 py-4 border-b border-gray-200">Nama Lengkap</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-24 text-center">L/P</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-32 text-center">Kelas</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-32 text-right">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {filteredStudents.length > 0 ? (
+                            filteredStudents.map((student, index) => (
+                                <tr key={student.id} className="hover:bg-blue-50/30 transition-colors group">
+                                    <td className="px-6 py-3 text-center text-sm text-gray-500">
+                                        {index + 1}
+                                    </td>
+                                    <td className="px-6 py-3 text-sm font-mono text-gray-600">
+                                        {student.nis}
+                                    </td>
+                                    <td className="px-6 py-3 text-sm font-medium text-gray-800">
+                                        {student.name}
+                                    </td>
+                                    <td className="px-6 py-3 text-center">
+                                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                                            student.gender === 'L' ? 'bg-blue-100 text-blue-600' : 'bg-pink-100 text-pink-600'
+                                        }`}>
+                                            {student.gender}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-3 text-center">
+                                        <span className="px-2 py-1 bg-gray-100 rounded text-xs font-bold text-gray-600">
+                                            {student.kelas}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-3 text-right">
+                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button 
+                                                onClick={() => onEdit(student)}
+                                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                title="Edit"
+                                            >
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button 
+                                                onClick={() => {
+                                                    if(window.confirm(`Yakin ingin menghapus siswa "${student.name}"? Data nilai akan ikut terhapus.`)) {
+                                                        onDelete(student.id);
+                                                    }
+                                                }}
+                                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                title="Hapus"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                                    <div className="flex flex-col items-center justify-center gap-2">
+                                        <Search size={32} className="opacity-20" />
+                                        <p>Tidak ada data siswa ditemukan.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div className="mt-4 text-xs text-gray-400 text-center">
+                Menampilkan {filteredStudents.length} dari {students.length} total siswa
+            </div>
        </div>
     </div>
   );

@@ -15,7 +15,7 @@ import TeacherMonitoringView from './components/TeacherMonitoringView';
 import ResetDataView from './components/ResetDataView';
 import TeacherDataView from './components/TeacherDataView'; 
 import ChapterConfigModal from './components/ChapterConfigModal';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as api from './services/api'; // Import API service
@@ -251,6 +251,12 @@ function App() {
     api.saveChapterConfig(selectedSubject, newConfig);
   };
 
+  const handleUpdateSettings = (e: React.FormEvent) => {
+      e.preventDefault();
+      api.saveSettings(settings);
+      alert("Pengaturan berhasil disimpan!");
+  };
+
   const handleSaveSession = (session: GradingSession) => {
     const sessionData = { ...session, targetSubject: selectedSubject };
     setAssessmentHistory((prev) => {
@@ -383,9 +389,22 @@ function App() {
       api.deleteStudent(id);
   };
 
-  const handleImportStudents = (newStudents: Student[]) => {
-      setStudents(prev => [...prev, ...newStudents]);
-      api.importStudents(newStudents);
+  const handleImportStudents = async (newStudents: Student[]) => {
+      setIsLoading(true); // Show loading spinner
+      try {
+          // Optimistic UI Update
+          setStudents(prev => [...prev, ...newStudents]);
+          
+          // Send to Server with chunking (Awaited)
+          await api.importStudents(newStudents);
+          
+          alert(`BERHASIL: ${newStudents.length} data siswa telah ditambahkan dan disinkronkan ke Spreadsheet.`);
+      } catch (error) {
+          console.error("Import failed", error);
+          alert("Gagal melakukan sinkronisasi ke server. Silakan cek koneksi internet.");
+      } finally {
+          setIsLoading(false);
+      }
   };
 
   const handleEditStudentClick = (student: Student) => {
@@ -871,6 +890,21 @@ function App() {
                     </div>
                  )}
 
+                 {/* ADDED: Settings Button for Admin */}
+                 {userRole === 'admin' && (
+                    <button
+                        onClick={() => setActiveTab('settings')}
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            activeTab === 'settings' 
+                            ? 'bg-gray-800 text-white shadow-sm' 
+                            : 'text-gray-600 hover:bg-gray-200/60'
+                        } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                    >
+                        <SlidersHorizontal size={18} />
+                        {!isSidebarCollapsed && <span>Pengaturan</span>}
+                    </button>
+                 )}
+
                  <button
                     onClick={() => setIsChapterConfigModalOpen(true)}
                      className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200/60 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}
@@ -902,6 +936,7 @@ function App() {
                       {activeTab === 'reset' && 'Reset Data'}
                       {activeTab === 'monitoring_tanggungan' && 'Monitoring Tanggungan'}
                       {activeTab === 'monitoring_remidi' && 'Monitoring Remidi'}
+                      {activeTab === 'settings' && 'Pengaturan Aplikasi'}
                   </h2>
                   <p className="text-xs text-gray-500 mt-1">
                       {activeTab === 'grades' && `Kelas ${selectedClass} • ${selectedSubject}`}
@@ -909,6 +944,7 @@ function App() {
                       {activeTab === 'teachers' && 'Manajemen Data Guru'}
                       {activeTab === 'monitoring_tanggungan' && 'Daftar Siswa Tanggungan (Nilai 0)'}
                       {activeTab === 'monitoring_remidi' && 'Daftar Siswa Remidi (Nilai < 70)'}
+                      {activeTab === 'settings' && 'Konfigurasi Sistem & Data Sekolah'}
                   </p>
                </div>
                
@@ -943,6 +979,17 @@ function App() {
                             <option value="genap">Sem. Genap</option>
                         </select>
                     </div>
+
+                    <button 
+                        onClick={() => setIsInputModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm font-bold shrink-0"
+                    >
+                        <Plus size={18} />
+                        <span className="hidden sm:inline">Input Nilai</span>
+                        <span className="sm:hidden">Input</span>
+                    </button>
+
+                    <div className="w-px h-8 bg-gray-300 mx-1 hidden sm:block"></div>
                     
                     <button onClick={handleDownloadPDF} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200 flex items-center gap-1.5 transition-colors shadow-sm shrink-0" title="Download PDF">
                         <FileText size={18} />
@@ -977,15 +1024,6 @@ function App() {
                            onDelete={handleDeleteSession}
                            onResetHistory={handleResetHistory}
                         />
-                        <div className="absolute bottom-6 right-6 z-30">
-                            <button
-                                onClick={() => setIsInputModalOpen(true)}
-                                className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-full shadow-lg transition-transform hover:scale-105 font-medium"
-                            >
-                                <Plus size={20} />
-                                <span>Buka Input Nilai</span>
-                            </button>
-                        </div>
                     </div>
                 )}
 
@@ -1025,6 +1063,7 @@ function App() {
                         teacherNip={currentTeacherSignature.nip}
                         principalName={settings.principalName}
                         principalNip={settings.principalNip}
+                        academicYear={settings.academicYear}
                     />
                 )}
 
@@ -1039,6 +1078,7 @@ function App() {
                         teacherNip={currentTeacherSignature.nip}
                         principalName={settings.principalName}
                         principalNip={settings.principalNip}
+                        academicYear={settings.academicYear}
                     />
                 )}
 
@@ -1048,6 +1088,126 @@ function App() {
                         currentSemester={selectedSemester}
                         onResetClass={handleResetClassGrades}
                     />
+                )}
+
+                {activeTab === 'settings' && userRole === 'admin' && (
+                    <div className="p-8 max-w-4xl mx-auto h-full overflow-y-auto custom-scrollbar">
+                        <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
+                            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                <SlidersHorizontal className="text-blue-600" />
+                                Pengaturan Aplikasi
+                            </h2>
+                            
+                            <form onSubmit={handleUpdateSettings} className="space-y-8">
+                                {/* Academic & Semester */}
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 border-b pb-2">Umum</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Tahun Ajaran</label>
+                                            <input 
+                                                type="text" 
+                                                value={settings.academicYear}
+                                                onChange={e => setSettings({...settings, academicYear: e.target.value})}
+                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Semester Aktif</label>
+                                            <select 
+                                                value={settings.activeSemester}
+                                                onChange={e => setSettings({...settings, activeSemester: e.target.value as SemesterKey})}
+                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                                            >
+                                                <option value="ganjil">Ganjil</option>
+                                                <option value="genap">Genap</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Personnel */}
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 border-b pb-2">Data Pejabat Sekolah</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Kepala Sekolah</label>
+                                            <input 
+                                                type="text" 
+                                                value={settings.principalName}
+                                                onChange={e => setSettings({...settings, principalName: e.target.value})}
+                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">NIP Kepala Sekolah</label>
+                                            <input 
+                                                type="text" 
+                                                value={settings.principalNip}
+                                                onChange={e => setSettings({...settings, principalNip: e.target.value})}
+                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Guru PAI (Default)</label>
+                                            <input 
+                                                type="text" 
+                                                value={settings.teacherName}
+                                                onChange={e => setSettings({...settings, teacherName: e.target.value})}
+                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">NIP Guru PAI</label>
+                                            <input 
+                                                type="text" 
+                                                value={settings.teacherNip}
+                                                onChange={e => setSettings({...settings, teacherNip: e.target.value})}
+                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Security */}
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 border-b pb-2">Keamanan</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Password Admin</label>
+                                            <div className="relative">
+                                                <input 
+                                                    type="text" 
+                                                    value={settings.adminPassword}
+                                                    onChange={e => setSettings({...settings, adminPassword: e.target.value})}
+                                                    className="w-full px-4 py-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
+                                                />
+                                                <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Password Default Guru</label>
+                                            <div className="relative">
+                                                <input 
+                                                    type="text" 
+                                                    value={settings.teacherDefaultPassword}
+                                                    onChange={e => setSettings({...settings, teacherDefaultPassword: e.target.value})}
+                                                    className="w-full px-4 py-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
+                                                />
+                                                <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="pt-6 flex justify-end border-t border-gray-100">
+                                    <button type="submit" className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg active:scale-95">
+                                        <Save size={18} /> Simpan Pengaturan
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
                 )}
             </div>
         </div>

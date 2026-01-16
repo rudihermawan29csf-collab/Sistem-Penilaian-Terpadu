@@ -59,12 +59,26 @@ export const deleteStudent = async (id: number) => {
 };
 
 export const importStudents = async (students: Student[]) => {
-     // Prepare data without heavy grade objects to save bandwidth, backend should initialize grades
-    const studentsData = students.map(s => {
+    // 1. Prepare clean data (remove heavy grade objects)
+    const cleanStudents = students.map(s => {
         const { grades, gradesBySubject, ...rest } = s;
         return rest;
     });
-    await postData({ action: 'importStudents', students: studentsData });
+
+    // 2. CHUNKING: Send data in batches of 20 to prevent GAS Payload limit/Timeout
+    const BATCH_SIZE = 20;
+    
+    for (let i = 0; i < cleanStudents.length; i += BATCH_SIZE) {
+        const chunk = cleanStudents.slice(i, i + BATCH_SIZE);
+        
+        // Send batch
+        await postData({ action: 'importStudents', students: chunk });
+        
+        // Add a small delay (300ms) between requests to be gentle on the server
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        console.log(`Sent batch ${i / BATCH_SIZE + 1} of ${Math.ceil(cleanStudents.length / BATCH_SIZE)}`);
+    }
 };
 
 export const saveChapterConfig = async (subject: string, config: any) => {

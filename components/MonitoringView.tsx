@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { Student, GradingSession, SemesterKey } from '../types';
-import { ChevronRight, Calendar, AlertCircle, RefreshCw, BookOpen, Download } from 'lucide-react';
+import { ChevronRight, Calendar, AlertCircle, RefreshCw, BookOpen, Download, User, Layers, Hash, Clock } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -15,6 +14,7 @@ interface MonitoringViewProps {
   teacherNip?: string;
   principalName?: string;
   principalNip?: string;
+  academicYear: string;
 }
 
 const MonitoringView: React.FC<MonitoringViewProps> = ({ 
@@ -26,7 +26,8 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
     teacherName,
     teacherNip,
     principalName,
-    principalNip 
+    principalNip,
+    academicYear 
 }) => {
   // 1. Filter history for current semester only (history passed is already filtered by Subject in App.tsx)
   const activeSessions = history.filter(h => h.semester === currentSemester);
@@ -116,10 +117,12 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
     doc.text(`Laporan Monitoring ${type === 'tanggungan' ? 'Tanggungan' : 'Remidi'}`, 105, 15, { align: "center" });
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(`Mata Pelajaran: ${subjectName || '-'}`, 14, 22);
-    doc.text(`Semester: ${currentSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 27);
+    doc.text(`Mata Pelajaran: ${subjectName || '-'}`, 14, 25);
+    doc.text(`Tahun Ajaran: ${academicYear}`, 14, 30);
+    doc.text(`Semester: ${currentSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 35);
+    doc.text(`Guru Pengampu: ${teacherName || '-'}`, 14, 40);
     
-    let yPos = 35;
+    let yPos = 50;
 
     sortedClasses.forEach(className => {
         // Class Header
@@ -205,21 +208,42 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
 
   return (
     <div className="flex-1 bg-white h-full overflow-auto custom-scrollbar p-6">
-      <div className="mb-6 border-b border-gray-200 pb-4 flex justify-between items-start">
+      <div className="mb-6 flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
             <h2 className={`text-2xl font-bold flex items-center gap-3 ${type === 'tanggungan' ? 'text-red-600' : 'text-orange-500'}`}>
             {type === 'tanggungan' ? <AlertCircle size={28} /> : <RefreshCw size={28} />}
             {type === 'tanggungan' ? 'Monitoring Tanggungan (Nilai 0)' : 'Monitoring Remidi (Nilai < 70)'}
             </h2>
-            <p className="text-gray-500 text-sm mt-1">
-            Daftar siswa yang perlu perhatian khusus untuk mapel <span className="font-semibold text-gray-700">{subjectName}</span>.
-            </p>
+            
+            {/* Context Info Banner */}
+            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600 bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
+               <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-blue-500" />
+                  <span className="font-semibold text-gray-500 text-xs uppercase tracking-wide">Tahun Ajaran:</span>
+                  <span className="font-bold text-gray-800">{academicYear}</span>
+               </div>
+               <div className="flex items-center gap-2">
+                  <Clock size={16} className="text-purple-500" />
+                   <span className="font-semibold text-gray-500 text-xs uppercase tracking-wide">Semester:</span>
+                  <span className="font-bold text-gray-800 capitalize">{currentSemester}</span>
+               </div>
+               <div className="flex items-center gap-2">
+                  <User size={16} className="text-green-500" />
+                   <span className="font-semibold text-gray-500 text-xs uppercase tracking-wide">Guru:</span>
+                  <span className="font-bold text-gray-800">{teacherName || '-'}</span>
+               </div>
+               <div className="flex items-center gap-2">
+                  <BookOpen size={16} className="text-orange-500" />
+                   <span className="font-semibold text-gray-500 text-xs uppercase tracking-wide">Mapel:</span>
+                  <span className="font-bold text-gray-800">{subjectName || '-'}</span>
+               </div>
+            </div>
         </div>
         <button 
             onClick={handleDownloadPDF}
-            className="flex items-center space-x-2 px-3 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors shadow-sm text-sm font-medium"
+            className="flex items-center space-x-2 px-4 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors shadow-lg shadow-gray-200 text-sm font-bold shrink-0"
         >
-            <Download size={16} />
+            <Download size={18} />
             <span>Download PDF</span>
         </button>
       </div>
