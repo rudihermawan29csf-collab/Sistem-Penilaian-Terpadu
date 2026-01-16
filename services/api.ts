@@ -10,6 +10,10 @@ export const fetchInitialData = async () => {
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const json = await response.json();
+    
+    // Debug logging
+    console.log("Fetched Data:", json);
+
     return json.data;
   } catch (error) {
     console.error("Failed to fetch data", error);

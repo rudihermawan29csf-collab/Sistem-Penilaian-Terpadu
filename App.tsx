@@ -24,6 +24,32 @@ import * as api from './services/api'; // Import API service
 type UserRole = 'admin' | 'teacher' | 'student' | null;
 type ActiveTab = 'grades' | 'students' | 'teachers' | 'settings' | 'tanggungan' | 'remidi' | 'reset' | 'monitoring_guru' | 'monitoring_tanggungan' | 'monitoring_remidi';
 
+// Helper function to deeply merge semester data, prioritizing non-null values
+const mergeSemesterData = (existing: SemesterData, incoming: SemesterData): SemesterData => {
+    const merged = { ...existing }; // Start with existing
+
+    // Helper to merge a chapter
+    const mergeChapter = (exChap: ChapterGrades, inChap: ChapterGrades): ChapterGrades => {
+        return {
+            f1: inChap.f1 !== null ? inChap.f1 : exChap.f1,
+            f2: inChap.f2 !== null ? inChap.f2 : exChap.f2,
+            f3: inChap.f3 !== null ? inChap.f3 : exChap.f3,
+            f4: inChap.f4 !== null ? inChap.f4 : exChap.f4,
+            f5: inChap.f5 !== null ? inChap.f5 : exChap.f5,
+            sum: inChap.sum !== null ? inChap.sum : exChap.sum,
+        };
+    };
+
+    (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(key => {
+        merged[key] = mergeChapter(existing[key], incoming[key]);
+    });
+
+    merged.kts = incoming.kts !== null ? incoming.kts : existing.kts;
+    merged.sas = incoming.sas !== null ? incoming.sas : existing.sas;
+
+    return merged;
+};
+
 function App() {
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
@@ -92,22 +118,56 @@ function App() {
       try {
         const data = await api.fetchInitialData();
         if (data) {
-            // --- CRITICAL FIX: DEDUPLICATION LOGIC ---
-            // Karena data di spreadsheet mungkin bertumpuk (duplicate rows),
-            // kita harus memastikan hanya mengambil data TERBARU (baris terakhir) untuk setiap siswa.
-            // Kita gunakan Map dengan key NIS agar entri lama tertimpa oleh entri baru.
+            // --- SMART MERGE LOGIC ---
+            // Mengatasi masalah data hilang/kosong karena baris duplikat atau baris kosong di spreadsheet.
+            // Kita akan menggabungkan data jika ditemukan NIS yang sama.
             
             const uniqueStudentsMap = new Map<string, Student>();
             
             if (Array.isArray(data.students)) {
                 data.students.forEach((s: Student) => {
-                    // Gunakan NIS sebagai key unik. Jika tidak ada NIS, gunakan ID.
-                    // Trim untuk menghapus spasi tidak sengaja.
+                    // Gunakan NIS sebagai key unik.
                     const key = s.nis ? String(s.nis).trim() : String(s.id);
                     
-                    // Map.set akan menimpa data lama dengan key yang sama.
-                    // Karena array diproses berurutan, data paling bawah (terbaru) akan menang.
-                    uniqueStudentsMap.set(key, s);
+                    const existing = uniqueStudentsMap.get(key);
+
+                    if (existing) {
+                        // Jika sudah ada data sebelumnya (baris atas), kita GABUNGKAN (Merge).
+                        // Kita prioritaskan data dari 's' (baris baru/bawah), TAPI jika 's' nilainya null/kosong,
+                        // kita pertahankan nilai dari 'existing'.
+                        // Ini mencegah baris kosong menimpa nilai yang sudah ada.
+
+                        const mergedGrades = {
+                            ganjil: mergeSemesterData(existing.grades.ganjil, s.grades.ganjil),
+                            genap: mergeSemesterData(existing.grades.genap, s.grades.genap),
+                        };
+                        
+                        // Merge Subject Grades as well
+                        const mergedGradesBySubject = { ...(existing.gradesBySubject || {}) };
+                        if (s.gradesBySubject) {
+                            Object.keys(s.gradesBySubject).forEach(subj => {
+                                if (!mergedGradesBySubject[subj]) {
+                                    mergedGradesBySubject[subj] = s.gradesBySubject![subj];
+                                } else {
+                                    mergedGradesBySubject[subj] = {
+                                        ganjil: mergeSemesterData(mergedGradesBySubject[subj].ganjil, s.gradesBySubject![subj].ganjil),
+                                        genap: mergeSemesterData(mergedGradesBySubject[subj].genap, s.gradesBySubject![subj].genap),
+                                    };
+                                }
+                            });
+                        }
+
+                        // Update data siswa dengan hasil merge
+                        uniqueStudentsMap.set(key, {
+                            ...s, // Ambil properti dasar (Nama, Kelas) dari baris terbaru
+                            grades: mergedGrades,
+                            gradesBySubject: mergedGradesBySubject
+                        });
+
+                    } else {
+                        // Jika belum ada, masukkan langsung
+                        uniqueStudentsMap.set(key, s);
+                    }
                 });
             }
             
