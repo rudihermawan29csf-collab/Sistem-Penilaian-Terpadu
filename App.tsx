@@ -15,7 +15,7 @@ import TeacherMonitoringView from './components/TeacherMonitoringView';
 import ResetDataView from './components/ResetDataView';
 import TeacherDataView from './components/TeacherDataView'; 
 import ChapterConfigModal from './components/ChapterConfigModal';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save, CloudDownload } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -35,7 +35,10 @@ const safeParseSemesterData = (input: any): SemesterData => {
     let data = input;
     if (typeof input === 'string') {
         try {
-            data = JSON.parse(input);
+            // Bersihkan string jika ada karakter aneh sebelum parse
+            const cleanInput = input.trim();
+            if (cleanInput === '' || cleanInput === 'null' || cleanInput === 'undefined') return empty;
+            data = JSON.parse(cleanInput);
         } catch (e) {
             console.warn("Gagal parse semester data:", input);
             return empty;
@@ -44,13 +47,13 @@ const safeParseSemesterData = (input: any): SemesterData => {
 
     // Pastikan structure lengkap (merge dengan empty template)
     return {
-        bab1: { ...empty.bab1, ...(data.bab1 || {}) },
-        bab2: { ...empty.bab2, ...(data.bab2 || {}) },
-        bab3: { ...empty.bab3, ...(data.bab3 || {}) },
-        bab4: { ...empty.bab4, ...(data.bab4 || {}) },
-        bab5: { ...empty.bab5, ...(data.bab5 || {}) },
-        kts: data.kts !== undefined ? data.kts : null,
-        sas: data.sas !== undefined ? data.sas : null,
+        bab1: { ...empty.bab1, ...(data?.bab1 || {}) },
+        bab2: { ...empty.bab2, ...(data?.bab2 || {}) },
+        bab3: { ...empty.bab3, ...(data?.bab3 || {}) },
+        bab4: { ...empty.bab4, ...(data?.bab4 || {}) },
+        bab5: { ...empty.bab5, ...(data?.bab5 || {}) },
+        kts: data?.kts !== undefined ? data.kts : null,
+        sas: data?.sas !== undefined ? data.sas : null,
     };
 };
 
@@ -153,12 +156,14 @@ function App() {
   const pendingSaveData = useRef<Record<string, SemesterData>>({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // --- INITIAL DATA LOAD ---
-  useEffect(() => {
-    const loadData = async () => {
+  // --- DATA LOADING LOGIC (Hoisted for reuse) ---
+  const handleReloadData = async () => {
       setIsLoading(true);
+      console.log("Memulai proses load data dari server...");
       try {
         const data = await api.fetchInitialData();
+        console.log("Data diterima dari server:", data);
+
         if (data) {
             // --- SMART MERGE LOGIC WITH ROBUST PARSING ---
             const uniqueStudentsMap = new Map<string, Student>();
@@ -176,9 +181,11 @@ function App() {
                             try { rawGBS = JSON.parse(rawGBS); } catch { rawGBS = {}; }
                         }
                         // Iterate and parse each subject inside
-                        Object.keys(rawGBS).forEach(subj => {
-                            parsedGradesBySubject[subj] = safeParseGrades(rawGBS[subj]);
-                        });
+                        if (rawGBS && typeof rawGBS === 'object') {
+                            Object.keys(rawGBS).forEach(subj => {
+                                parsedGradesBySubject[subj] = safeParseGrades(rawGBS[subj]);
+                            });
+                        }
                     }
 
                     // Buat objek siswa yang bersih
@@ -237,7 +244,7 @@ function App() {
                 return a.kelas.localeCompare(b.kelas);
             });
 
-            console.log("Parsed Students:", uniqueStudents); // Debug log
+            console.log("Siswa berhasil diparsing:", uniqueStudents); 
 
             setStudents(uniqueStudents);
             setTeachers(data.teachers || []);
@@ -265,20 +272,26 @@ function App() {
                 }
                 setSubjectChapterConfigs(configs);
             }
+            // Feedback Visual
+            // alert("Data berhasil diperbarui dari server.");
         } else {
-            console.log("No data returned from API, using defaults.");
+            console.log("Tidak ada data dari API, menggunakan data default.");
             setStudents(initialStudents);
             setTeachers(initialTeachers);
         }
       } catch (error) {
-        console.error("Failed to load initial data", error);
+        console.error("Gagal load data:", error);
+        alert("Gagal memuat data. Periksa koneksi internet atau coba lagi.");
         setStudents(initialStudents);
         setTeachers(initialTeachers);
       } finally {
         setIsLoading(false);
       }
-    };
-    loadData();
+  };
+
+  // --- INITIAL EFFECT ---
+  useEffect(() => {
+    handleReloadData();
   }, []);
 
   // --- DERIVED STATE ---
@@ -1165,6 +1178,15 @@ function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* RELOAD BUTTON ADDED IN MAIN TOOLBAR TOO FOR CONVENIENCE */}
+                     <button
+                        onClick={handleReloadData}
+                        className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-100"
+                        title="Reload Data dari Server"
+                    >
+                        <RefreshCw size={20} className={isLoading ? "animate-spin" : ""} />
+                    </button>
+
                     <button
                         onClick={() => setIsChapterConfigModalOpen(true)}
                         className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -1383,8 +1405,20 @@ function App() {
 
         </div>
 
-        {/* Footer Toggle */}
+        {/* NEW: Reload Button in Sidebar Footer */}
         <div className="p-4 border-t border-gray-800">
+             <button 
+                 onClick={handleReloadData}
+                 disabled={isLoading}
+                 className="w-full flex items-center justify-center gap-2 p-2 rounded-lg bg-blue-900/50 hover:bg-blue-900 text-blue-200 transition-colors border border-blue-800 disabled:opacity-50"
+             >
+                  <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
+                  {!isSidebarCollapsed && <span className="font-medium text-xs">Reload Data Server</span>}
+             </button>
+        </div>
+
+        {/* Footer Toggle */}
+        <div className="p-4 pt-2 border-t border-gray-800/50">
            <button 
              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
              className="w-full flex items-center justify-center p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-gray-400"
@@ -1455,9 +1489,10 @@ function App() {
       {/* Global Loading Overlay */}
       {isLoading && (
           <div className="fixed inset-0 z-[60] bg-white/80 backdrop-blur-sm flex items-center justify-center">
-               <div className="flex flex-col items-center">
+               <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
                     <Loader2 size={40} className="text-blue-600 animate-spin mb-4" />
-                    <p className="text-gray-600 font-medium">Memuat data...</p>
+                    <p className="text-gray-600 font-bold text-lg">Memuat data dari server...</p>
+                    <p className="text-gray-400 text-sm mt-1">Mohon tunggu sebentar</p>
                </div>
           </div>
       )}
