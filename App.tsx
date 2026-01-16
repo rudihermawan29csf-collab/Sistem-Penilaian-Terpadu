@@ -15,7 +15,7 @@ import TeacherMonitoringView from './components/TeacherMonitoringView';
 import ResetDataView from './components/ResetDataView';
 import TeacherDataView from './components/TeacherDataView'; 
 import ChapterConfigModal from './components/ChapterConfigModal';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save, CloudDownload } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save, CloudDownload, Wifi, WifiOff } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -24,49 +24,47 @@ import * as api from './services/api'; // Import API service
 type UserRole = 'admin' | 'teacher' | 'student' | null;
 type ActiveTab = 'grades' | 'students' | 'teachers' | 'settings' | 'tanggungan' | 'remidi' | 'reset' | 'monitoring_guru' | 'monitoring_tanggungan' | 'monitoring_remidi';
 
-// --- HELPER: ROBUST PARSING ---
-// Fungsi ini memastikan data grades selalu dalam format objek yang benar,
-// meskipun dari server dikirim sebagai JSON String atau Partial Object.
+// --- HELPER: RECURSIVE JSON PARSER ---
+// Mengatasi masalah double stringify dari Google Sheets (misal: "{\"bab1\":...}")
+const parseJSONRecursive = (input: any): any => {
+    if (typeof input !== 'string') return input;
+    try {
+        const parsed = JSON.parse(input);
+        // Jika hasil parse masih string, coba parse lagi (rekursif)
+        if (typeof parsed === 'string') {
+            return parseJSONRecursive(parsed);
+        }
+        return parsed;
+    } catch (e) {
+        return input; // Jika gagal parse, kembalikan value asli
+    }
+};
+
 const safeParseSemesterData = (input: any): SemesterData => {
     const empty = createEmptySemesterData();
-    if (!input) return empty;
+    const data = parseJSONRecursive(input); // Gunakan parser rekursif
 
-    // Jika input berupa string JSON (sering terjadi dari Google Sheets), parse dulu
-    let data = input;
-    if (typeof input === 'string') {
-        try {
-            // Bersihkan string jika ada karakter aneh sebelum parse
-            const cleanInput = input.trim();
-            if (cleanInput === '' || cleanInput === 'null' || cleanInput === 'undefined') return empty;
-            data = JSON.parse(cleanInput);
-        } catch (e) {
-            console.warn("Gagal parse semester data:", input);
-            return empty;
-        }
-    }
+    if (!data || typeof data !== 'object') return empty;
 
     // Pastikan structure lengkap (merge dengan empty template)
     return {
-        bab1: { ...empty.bab1, ...(data?.bab1 || {}) },
-        bab2: { ...empty.bab2, ...(data?.bab2 || {}) },
-        bab3: { ...empty.bab3, ...(data?.bab3 || {}) },
-        bab4: { ...empty.bab4, ...(data?.bab4 || {}) },
-        bab5: { ...empty.bab5, ...(data?.bab5 || {}) },
-        kts: data?.kts !== undefined ? data.kts : null,
-        sas: data?.sas !== undefined ? data.sas : null,
+        bab1: { ...empty.bab1, ...(data.bab1 || {}) },
+        bab2: { ...empty.bab2, ...(data.bab2 || {}) },
+        bab3: { ...empty.bab3, ...(data.bab3 || {}) },
+        bab4: { ...empty.bab4, ...(data.bab4 || {}) },
+        bab5: { ...empty.bab5, ...(data.bab5 || {}) },
+        kts: data.kts !== undefined ? data.kts : null,
+        sas: data.sas !== undefined ? data.sas : null,
     };
 };
 
 const safeParseGrades = (input: any): { ganjil: SemesterData, genap: SemesterData } => {
-    let data = input;
-    if (typeof input === 'string') {
-        try { data = JSON.parse(input); } catch { data = {}; }
-    }
-    if (!data) data = {};
+    const data = parseJSONRecursive(input);
+    const safeData = data && typeof data === 'object' ? data : {};
 
     return {
-        ganjil: safeParseSemesterData(data.ganjil),
-        genap: safeParseSemesterData(data.genap)
+        ganjil: safeParseSemesterData(safeData.ganjil),
+        genap: safeParseSemesterData(safeData.genap)
     };
 };
 
@@ -96,9 +94,11 @@ const mergeSemesterData = (existing: SemesterData, incoming: SemesterData): Seme
 };
 
 function App() {
-  // Loading State
+  // Loading & Connection State
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false); // Manual Save Loading State
+  const [isSaving, setIsSaving] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'checking'>('checking');
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   // Auth State
   const [userRole, setUserRole] = useState<UserRole>(null);
@@ -108,7 +108,7 @@ function App() {
   // Layout State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  // Data State - Initialize empty, will load from API
+  // Data State
   const [students, setStudents] = useState<Student[]>([]); 
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -159,82 +159,99 @@ function App() {
   // --- DATA LOADING LOGIC (Hoisted for reuse) ---
   const handleReloadData = async () => {
       setIsLoading(true);
+      setConnectionStatus('checking');
       console.log("Memulai proses load data dari server...");
       try {
-        const data = await api.fetchInitialData();
-        console.log("Data diterima dari server:", data);
+        const rawResponse = await api.fetchInitialData();
+        console.log("Raw Response from API:", rawResponse);
 
-        if (data) {
+        // Handle case where response might be wrapped in 'data' or be direct
+        const data = rawResponse?.data || rawResponse;
+
+        if (data && (Array.isArray(data.students) || data.students)) {
+            setConnectionStatus('online');
+            setLastSync(new Date());
+
             // --- SMART MERGE LOGIC WITH ROBUST PARSING ---
             const uniqueStudentsMap = new Map<string, Student>();
+            const studentList = Array.isArray(data.students) ? data.students : [];
             
-            if (Array.isArray(data.students)) {
-                data.students.forEach((rawS: any) => {
-                    // 1. Sanitasi Data (Pastikan grades terbaca meski berupa String)
-                    const parsedGrades = safeParseGrades(rawS.grades);
-                    
-                    // Parse gradesBySubject (handle string or object)
-                    let parsedGradesBySubject: Record<string, { ganjil: SemesterData, genap: SemesterData }> = {};
-                    if (rawS.gradesBySubject) {
-                        let rawGBS = rawS.gradesBySubject;
-                        if (typeof rawGBS === 'string') {
-                            try { rawGBS = JSON.parse(rawGBS); } catch { rawGBS = {}; }
-                        }
-                        // Iterate and parse each subject inside
-                        if (rawGBS && typeof rawGBS === 'object') {
-                            Object.keys(rawGBS).forEach(subj => {
-                                parsedGradesBySubject[subj] = safeParseGrades(rawGBS[subj]);
-                            });
-                        }
-                    }
-
-                    // Buat objek siswa yang bersih
-                    const s: Student = {
-                        id: rawS.id,
-                        no: rawS.no,
-                        nis: rawS.nis,
-                        name: rawS.name,
-                        kelas: rawS.kelas,
-                        gender: rawS.gender,
-                        grades: parsedGrades,
-                        gradesBySubject: parsedGradesBySubject
-                    };
-
-                    // 2. Merge Logic
-                    const key = s.nis ? String(s.nis).trim() : String(s.id);
-                    const existing = uniqueStudentsMap.get(key);
-
-                    if (existing) {
-                        // Merge Grades
-                        const mergedGrades = {
-                            ganjil: mergeSemesterData(existing.grades.ganjil, s.grades.ganjil),
-                            genap: mergeSemesterData(existing.grades.genap, s.grades.genap),
-                        };
-                        
-                        // Merge Subject Grades
-                        const mergedGradesBySubject = { ...(existing.gradesBySubject || {}) };
-                        Object.keys(s.gradesBySubject || {}).forEach(subj => {
-                            if (!mergedGradesBySubject[subj]) {
-                                mergedGradesBySubject[subj] = s.gradesBySubject![subj];
-                            } else {
-                                mergedGradesBySubject[subj] = {
-                                    ganjil: mergeSemesterData(mergedGradesBySubject[subj].ganjil, s.gradesBySubject![subj].ganjil),
-                                    genap: mergeSemesterData(mergedGradesBySubject[subj].genap, s.gradesBySubject![subj].genap),
-                                };
-                            }
-                        });
-
-                        uniqueStudentsMap.set(key, {
-                            ...s, 
-                            grades: mergedGrades,
-                            gradesBySubject: mergedGradesBySubject
-                        });
-
-                    } else {
-                        uniqueStudentsMap.set(key, s);
-                    }
-                });
+            if (studentList.length === 0) {
+                console.warn("Server connected but student list is empty.");
             }
+
+            studentList.forEach((rawS: any) => {
+                // Normalize keys (handle case sensitivity from spreadsheet)
+                const id = rawS.id || rawS.ID;
+                const nis = rawS.nis || rawS.NIS || rawS.Nis;
+                const name = rawS.name || rawS.Name || rawS.NAMA;
+                const kelas = rawS.kelas || rawS.Kelas || rawS.KELAS;
+                const gender = rawS.gender || rawS.Gender;
+                const gradesRaw = rawS.grades || rawS.Grades || rawS.Nilai;
+                const gradesBySubjectRaw = rawS.gradesBySubject || rawS.GradesBySubject;
+
+                // 1. Sanitasi Data (Pastikan grades terbaca meski berupa String)
+                const parsedGrades = safeParseGrades(gradesRaw);
+                
+                // Parse gradesBySubject
+                let parsedGradesBySubject: Record<string, { ganjil: SemesterData, genap: SemesterData }> = {};
+                const parsedGBS = parseJSONRecursive(gradesBySubjectRaw);
+                
+                if (parsedGBS && typeof parsedGBS === 'object') {
+                    Object.keys(parsedGBS).forEach(subj => {
+                        parsedGradesBySubject[subj] = safeParseGrades(parsedGBS[subj]);
+                    });
+                }
+
+                // Buat objek siswa yang bersih
+                const s: Student = {
+                    id: id,
+                    no: rawS.no || 0,
+                    nis: nis ? String(nis) : '',
+                    name: name ? String(name) : 'Tanpa Nama',
+                    kelas: kelas ? String(kelas) : '?',
+                    gender: gender,
+                    grades: parsedGrades,
+                    gradesBySubject: parsedGradesBySubject
+                };
+
+                // 2. Merge Logic
+                const key = s.nis ? String(s.nis).trim() : String(s.id);
+                // Skip invalid rows
+                if (!s.name || s.name === 'Tanpa Nama') return;
+
+                const existing = uniqueStudentsMap.get(key);
+
+                if (existing) {
+                    // Merge Grades
+                    const mergedGrades = {
+                        ganjil: mergeSemesterData(existing.grades.ganjil, s.grades.ganjil),
+                        genap: mergeSemesterData(existing.grades.genap, s.grades.genap),
+                    };
+                    
+                    // Merge Subject Grades
+                    const mergedGradesBySubject = { ...(existing.gradesBySubject || {}) };
+                    Object.keys(s.gradesBySubject || {}).forEach(subj => {
+                        if (!mergedGradesBySubject[subj]) {
+                            mergedGradesBySubject[subj] = s.gradesBySubject![subj];
+                        } else {
+                            mergedGradesBySubject[subj] = {
+                                ganjil: mergeSemesterData(mergedGradesBySubject[subj].ganjil, s.gradesBySubject![subj].ganjil),
+                                genap: mergeSemesterData(mergedGradesBySubject[subj].genap, s.gradesBySubject![subj].genap),
+                            };
+                        }
+                    });
+
+                    uniqueStudentsMap.set(key, {
+                        ...s, 
+                        grades: mergedGrades,
+                        gradesBySubject: mergedGradesBySubject
+                    });
+
+                } else {
+                    uniqueStudentsMap.set(key, s);
+                }
+            });
             
             const uniqueStudents = Array.from(uniqueStudentsMap.values());
             
@@ -244,7 +261,7 @@ function App() {
                 return a.kelas.localeCompare(b.kelas);
             });
 
-            console.log("Siswa berhasil diparsing:", uniqueStudents); 
+            console.log(`Berhasil memuat ${uniqueStudents.length} siswa.`);
 
             setStudents(uniqueStudents);
             setTeachers(data.teachers || []);
@@ -252,36 +269,35 @@ function App() {
             
             // Load Settings
             if (data.settings) {
-                const loadedSettings = data.settings;
-                const safeAdminPassword = loadedSettings.adminPassword ? String(loadedSettings.adminPassword) : 'admin123';
-                const safeTeacherPassword = loadedSettings.teacherDefaultPassword ? String(loadedSettings.teacherDefaultPassword) : 'guru';
+                const loadedSettings = parseJSONRecursive(data.settings);
+                if (loadedSettings) {
+                    const safeAdminPassword = loadedSettings.adminPassword ? String(loadedSettings.adminPassword) : 'admin123';
+                    const safeTeacherPassword = loadedSettings.teacherDefaultPassword ? String(loadedSettings.teacherDefaultPassword) : 'guru';
 
-                setSettings({
-                    ...loadedSettings,
-                    adminPassword: safeAdminPassword,
-                    teacherDefaultPassword: safeTeacherPassword
-                });
-                setSelectedSemester(loadedSettings.activeSemester || 'ganjil');
+                    setSettings({
+                        ...loadedSettings,
+                        adminPassword: safeAdminPassword,
+                        teacherDefaultPassword: safeTeacherPassword
+                    });
+                    setSelectedSemester(loadedSettings.activeSemester || 'ganjil');
+                }
             }
 
             if (data.chapterConfigs) {
-                // Ensure config is parsed if string
-                let configs = data.chapterConfigs;
-                if (typeof configs === 'string') {
-                    try { configs = JSON.parse(configs); } catch { configs = {}; }
-                }
-                setSubjectChapterConfigs(configs);
+                const configs = parseJSONRecursive(data.chapterConfigs);
+                setSubjectChapterConfigs(configs || {});
             }
-            // Feedback Visual
-            // alert("Data berhasil diperbarui dari server.");
         } else {
-            console.log("Tidak ada data dari API, menggunakan data default.");
+            console.error("Format data server tidak dikenali atau kosong.", rawResponse);
+            setConnectionStatus('offline');
             setStudents(initialStudents);
             setTeachers(initialTeachers);
+            alert("Terhubung ke server, tetapi data tidak ditemukan atau format salah. Menggunakan data lokal sementara.");
         }
       } catch (error) {
         console.error("Gagal load data:", error);
-        alert("Gagal memuat data. Periksa koneksi internet atau coba lagi.");
+        setConnectionStatus('offline');
+        alert("Gagal terhubung ke Google Spreadsheet. Periksa koneksi internet Anda.\nAplikasi berjalan dalam Mode Offline (Data Lokal).");
         setStudents(initialStudents);
         setTeachers(initialTeachers);
       } finally {
@@ -1405,16 +1421,43 @@ function App() {
 
         </div>
 
-        {/* NEW: Reload Button in Sidebar Footer */}
-        <div className="p-4 border-t border-gray-800">
-             <button 
-                 onClick={handleReloadData}
-                 disabled={isLoading}
-                 className="w-full flex items-center justify-center gap-2 p-2 rounded-lg bg-blue-900/50 hover:bg-blue-900 text-blue-200 transition-colors border border-blue-800 disabled:opacity-50"
-             >
-                  <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
-                  {!isSidebarCollapsed && <span className="font-medium text-xs">Reload Data Server</span>}
-             </button>
+        {/* Connection Status Indicator */}
+        <div className="px-4 py-2 bg-black/20 border-t border-gray-800">
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                    {connectionStatus === 'online' ? (
+                        <Wifi size={14} className="text-green-500" />
+                    ) : connectionStatus === 'checking' ? (
+                        <Loader2 size={14} className="text-yellow-500 animate-spin" />
+                    ) : (
+                        <WifiOff size={14} className="text-red-500" />
+                    )}
+                    {!isSidebarCollapsed && (
+                        <div className="flex flex-col">
+                            <span className={`text-[10px] font-bold ${
+                                connectionStatus === 'online' ? 'text-green-500' : 
+                                connectionStatus === 'checking' ? 'text-yellow-500' : 'text-red-500'
+                            }`}>
+                                {connectionStatus === 'online' ? 'TERHUBUNG' : 
+                                 connectionStatus === 'checking' ? 'KONEKSI...' : 'OFFLINE'}
+                            </span>
+                            {lastSync && connectionStatus === 'online' && (
+                                <span className="text-[9px] text-gray-500">Sync: {lastSync.toLocaleTimeString()}</span>
+                            )}
+                        </div>
+                    )}
+                 </div>
+                 {!isSidebarCollapsed && (
+                     <button 
+                         onClick={handleReloadData} 
+                         disabled={isLoading}
+                         className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                         title="Force Reload"
+                     >
+                         <RefreshCw size={12} className={isLoading ? "animate-spin" : ""} />
+                     </button>
+                 )}
+             </div>
         </div>
 
         {/* Footer Toggle */}

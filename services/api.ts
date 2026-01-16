@@ -7,14 +7,25 @@ const API_URL = "https://script.google.com/macros/s/AKfycbx4tj_ypUoBmKv856qwqz6F
 export const fetchInitialData = async () => {
   try {
     // Add timestamp cache buster to ensure we always get fresh data from server
-    const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`);
-    if (!response.ok) throw new Error('Network response was not ok');
-    const json = await response.json();
+    // Added 'redirect: follow' explicitly although it's default in many envs
+    const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
+        redirect: 'follow'
+    });
     
-    // Debug logging
-    console.log("Fetched Data:", json);
+    if (!response.ok) throw new Error(`Network response was not ok: ${response.status}`);
+    
+    // Get text first to log it, then parse
+    const text = await response.text();
+    console.log("Raw Server Response:", text); // Debug log
+    
+    try {
+        const json = JSON.parse(text);
+        return json;
+    } catch (e) {
+        console.error("Failed to parse JSON response:", e);
+        return null;
+    }
 
-    return json.data;
   } catch (error) {
     console.error("Failed to fetch data", error);
     return null;
