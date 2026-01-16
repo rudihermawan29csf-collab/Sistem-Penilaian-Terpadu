@@ -24,11 +24,53 @@ import * as api from './services/api'; // Import API service
 type UserRole = 'admin' | 'teacher' | 'student' | null;
 type ActiveTab = 'grades' | 'students' | 'teachers' | 'settings' | 'tanggungan' | 'remidi' | 'reset' | 'monitoring_guru' | 'monitoring_tanggungan' | 'monitoring_remidi';
 
-// Helper function to deeply merge semester data, prioritizing non-null values
-const mergeSemesterData = (existing: SemesterData, incoming: SemesterData): SemesterData => {
-    const merged = { ...existing }; // Start with existing
+// --- HELPER: ROBUST PARSING ---
+// Fungsi ini memastikan data grades selalu dalam format objek yang benar,
+// meskipun dari server dikirim sebagai JSON String atau Partial Object.
+const safeParseSemesterData = (input: any): SemesterData => {
+    const empty = createEmptySemesterData();
+    if (!input) return empty;
 
-    // Helper to merge a chapter
+    // Jika input berupa string JSON (sering terjadi dari Google Sheets), parse dulu
+    let data = input;
+    if (typeof input === 'string') {
+        try {
+            data = JSON.parse(input);
+        } catch (e) {
+            console.warn("Gagal parse semester data:", input);
+            return empty;
+        }
+    }
+
+    // Pastikan structure lengkap (merge dengan empty template)
+    return {
+        bab1: { ...empty.bab1, ...(data.bab1 || {}) },
+        bab2: { ...empty.bab2, ...(data.bab2 || {}) },
+        bab3: { ...empty.bab3, ...(data.bab3 || {}) },
+        bab4: { ...empty.bab4, ...(data.bab4 || {}) },
+        bab5: { ...empty.bab5, ...(data.bab5 || {}) },
+        kts: data.kts !== undefined ? data.kts : null,
+        sas: data.sas !== undefined ? data.sas : null,
+    };
+};
+
+const safeParseGrades = (input: any): { ganjil: SemesterData, genap: SemesterData } => {
+    let data = input;
+    if (typeof input === 'string') {
+        try { data = JSON.parse(input); } catch { data = {}; }
+    }
+    if (!data) data = {};
+
+    return {
+        ganjil: safeParseSemesterData(data.ganjil),
+        genap: safeParseSemesterData(data.genap)
+    };
+};
+
+// Helper function to deeply merge semester data
+const mergeSemesterData = (existing: SemesterData, incoming: SemesterData): SemesterData => {
+    const merged = { ...existing };
+
     const mergeChapter = (exChap: ChapterGrades, inChap: ChapterGrades): ChapterGrades => {
         return {
             f1: inChap.f1 !== null ? inChap.f1 : exChap.f1,
@@ -118,73 +160,90 @@ function App() {
       try {
         const data = await api.fetchInitialData();
         if (data) {
-            // --- SMART MERGE LOGIC ---
-            // Mengatasi masalah data hilang/kosong karena baris duplikat atau baris kosong di spreadsheet.
-            // Kita akan menggabungkan data jika ditemukan NIS yang sama.
-            
+            // --- SMART MERGE LOGIC WITH ROBUST PARSING ---
             const uniqueStudentsMap = new Map<string, Student>();
             
             if (Array.isArray(data.students)) {
-                data.students.forEach((s: Student) => {
-                    // Gunakan NIS sebagai key unik.
-                    const key = s.nis ? String(s.nis).trim() : String(s.id);
+                data.students.forEach((rawS: any) => {
+                    // 1. Sanitasi Data (Pastikan grades terbaca meski berupa String)
+                    const parsedGrades = safeParseGrades(rawS.grades);
                     
+                    // Parse gradesBySubject (handle string or object)
+                    let parsedGradesBySubject: Record<string, { ganjil: SemesterData, genap: SemesterData }> = {};
+                    if (rawS.gradesBySubject) {
+                        let rawGBS = rawS.gradesBySubject;
+                        if (typeof rawGBS === 'string') {
+                            try { rawGBS = JSON.parse(rawGBS); } catch { rawGBS = {}; }
+                        }
+                        // Iterate and parse each subject inside
+                        Object.keys(rawGBS).forEach(subj => {
+                            parsedGradesBySubject[subj] = safeParseGrades(rawGBS[subj]);
+                        });
+                    }
+
+                    // Buat objek siswa yang bersih
+                    const s: Student = {
+                        id: rawS.id,
+                        no: rawS.no,
+                        nis: rawS.nis,
+                        name: rawS.name,
+                        kelas: rawS.kelas,
+                        gender: rawS.gender,
+                        grades: parsedGrades,
+                        gradesBySubject: parsedGradesBySubject
+                    };
+
+                    // 2. Merge Logic
+                    const key = s.nis ? String(s.nis).trim() : String(s.id);
                     const existing = uniqueStudentsMap.get(key);
 
                     if (existing) {
-                        // Jika sudah ada data sebelumnya (baris atas), kita GABUNGKAN (Merge).
-                        // Kita prioritaskan data dari 's' (baris baru/bawah), TAPI jika 's' nilainya null/kosong,
-                        // kita pertahankan nilai dari 'existing'.
-                        // Ini mencegah baris kosong menimpa nilai yang sudah ada.
-
+                        // Merge Grades
                         const mergedGrades = {
                             ganjil: mergeSemesterData(existing.grades.ganjil, s.grades.ganjil),
                             genap: mergeSemesterData(existing.grades.genap, s.grades.genap),
                         };
                         
-                        // Merge Subject Grades as well
+                        // Merge Subject Grades
                         const mergedGradesBySubject = { ...(existing.gradesBySubject || {}) };
-                        if (s.gradesBySubject) {
-                            Object.keys(s.gradesBySubject).forEach(subj => {
-                                if (!mergedGradesBySubject[subj]) {
-                                    mergedGradesBySubject[subj] = s.gradesBySubject![subj];
-                                } else {
-                                    mergedGradesBySubject[subj] = {
-                                        ganjil: mergeSemesterData(mergedGradesBySubject[subj].ganjil, s.gradesBySubject![subj].ganjil),
-                                        genap: mergeSemesterData(mergedGradesBySubject[subj].genap, s.gradesBySubject![subj].genap),
-                                    };
-                                }
-                            });
-                        }
+                        Object.keys(s.gradesBySubject || {}).forEach(subj => {
+                            if (!mergedGradesBySubject[subj]) {
+                                mergedGradesBySubject[subj] = s.gradesBySubject![subj];
+                            } else {
+                                mergedGradesBySubject[subj] = {
+                                    ganjil: mergeSemesterData(mergedGradesBySubject[subj].ganjil, s.gradesBySubject![subj].ganjil),
+                                    genap: mergeSemesterData(mergedGradesBySubject[subj].genap, s.gradesBySubject![subj].genap),
+                                };
+                            }
+                        });
 
-                        // Update data siswa dengan hasil merge
                         uniqueStudentsMap.set(key, {
-                            ...s, // Ambil properti dasar (Nama, Kelas) dari baris terbaru
+                            ...s, 
                             grades: mergedGrades,
                             gradesBySubject: mergedGradesBySubject
                         });
 
                     } else {
-                        // Jika belum ada, masukkan langsung
                         uniqueStudentsMap.set(key, s);
                     }
                 });
             }
             
-            // Konversi kembali ke array
             const uniqueStudents = Array.from(uniqueStudentsMap.values());
             
-            // Sort agar rapi (Kelas dulu, lalu Nama)
+            // Sort
             uniqueStudents.sort((a, b) => {
                 if (a.kelas === b.kelas) return a.name.localeCompare(b.name);
                 return a.kelas.localeCompare(b.kelas);
             });
 
+            console.log("Parsed Students:", uniqueStudents); // Debug log
+
             setStudents(uniqueStudents);
             setTeachers(data.teachers || []);
             setAssessmentHistory(data.history || []);
             
-            // Load Settings safely
+            // Load Settings
             if (data.settings) {
                 const loadedSettings = data.settings;
                 const safeAdminPassword = loadedSettings.adminPassword ? String(loadedSettings.adminPassword) : 'admin123';
@@ -199,10 +258,15 @@ function App() {
             }
 
             if (data.chapterConfigs) {
-                setSubjectChapterConfigs(data.chapterConfigs);
+                // Ensure config is parsed if string
+                let configs = data.chapterConfigs;
+                if (typeof configs === 'string') {
+                    try { configs = JSON.parse(configs); } catch { configs = {}; }
+                }
+                setSubjectChapterConfigs(configs);
             }
         } else {
-            // Fallback to local data
+            console.log("No data returned from API, using defaults.");
             setStudents(initialStudents);
             setTeachers(initialTeachers);
         }
@@ -322,9 +386,7 @@ function App() {
         let grades = s.grades; // Default PAI
         
         if (selectedSubject !== 'Pendidikan Agama Islam') {
-            // Check for subject existence robustly (handling potential casing issues if needed in future)
             const subjectData = s.gradesBySubject?.[selectedSubject];
-            
             if (subjectData && subjectData[selectedSemester]) {
                 grades = subjectData[selectedSemester] as any;
             } else {
@@ -334,8 +396,6 @@ function App() {
             grades = s.grades[selectedSemester];
         }
         
-        // Return a temporary object structure that matches what getActiveFields expects
-        // getActiveFields looks at s.grades[semester]
         return {
             ...s,
             grades: {
