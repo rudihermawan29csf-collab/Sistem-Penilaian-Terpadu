@@ -33,8 +33,16 @@ const postData = async (body: any) => {
   }
 };
 
-export const saveGrade = async (studentId: number, subject: string, semester: string, gradeData: any) => {
-  await postData({ action: 'saveGrade', studentId, subject, semester, gradeData });
+// FIXED: studentId changed to string | number but explicitly sent as String
+export const saveGrade = async (studentId: string | number, subject: string, semester: string, gradeData: any) => {
+  // Convert ID to String to ensure matching in Spreadsheet (avoids stacking/duplicates)
+  await postData({ 
+    action: 'saveGrade', 
+    studentId: String(studentId), 
+    subject, 
+    semester, 
+    gradeData 
+  });
 };
 
 export const saveHistory = async (session: GradingSession) => {

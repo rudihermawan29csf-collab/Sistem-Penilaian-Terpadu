@@ -347,7 +347,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // RENDER: MONITORING (Tanggungan & Remidi)
   const renderMonitoringList = (type: 'tanggungan' | 'remidi') => {
       // Logic: Iterate history (to get actual tasks assigned) -> check student score
-      const listItems: { subject: string, taskName: string, score: number, date: string, teacher: string }[] = [];
+      const listItems: { subject: string, taskName: string, description: string, score: number, date: string, teacher: string }[] = [];
 
       // Filter relevant history first (class & semester)
       const relevantHistory = assessmentHistory.filter(h => 
@@ -384,6 +384,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
               listItems.push({
                   subject,
                   taskName,
+                  description: session.description || '',
                   score,
                   date: session.date,
                   teacher: subjectTeacherMap[subject] || '-'
@@ -447,8 +448,11 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                             <div className="divide-y divide-gray-100">
                                 {items.map((item, idx) => (
                                     <div key={idx} className="px-5 py-3 flex justify-between items-center hover:bg-red-50/10">
-                                        <div>
-                                            <div className="font-medium text-gray-700 text-sm">{item.taskName}</div>
+                                        <div className="flex-1">
+                                            <div className="font-medium text-gray-700 text-sm">
+                                                {item.taskName} 
+                                                {item.description && <span className="font-normal text-gray-500 italic"> ({item.description})</span>}
+                                            </div>
                                             <div className="text-xs text-gray-400 mt-0.5">{item.date}</div>
                                         </div>
                                         <div className={`px-3 py-1 rounded text-sm font-bold ${

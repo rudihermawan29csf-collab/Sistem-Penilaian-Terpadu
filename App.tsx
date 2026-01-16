@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { initialStudents, initialTeachers } from './data';
 import { Student, ChapterKey, FormativeKey, ChapterGrades, SemesterKey, SemesterData, GradingSession, AppSettings, Teacher } from './types';
@@ -17,6 +18,7 @@ import ChapterConfigModal from './components/ChapterConfigModal';
 import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import * as api from './services/api'; // Import API service
 
 type UserRole = 'admin' | 'teacher' | 'student' | null;
@@ -25,6 +27,7 @@ type ActiveTab = 'grades' | 'students' | 'teachers' | 'settings' | 'tanggungan' 
 function App() {
   // Loading State
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false); // Manual Save Loading State
 
   // Auth State
   const [userRole, setUserRole] = useState<UserRole>(null);
@@ -78,9 +81,9 @@ function App() {
   // NEW: Multi-subject selection state
   const [selectedSubject, setSelectedSubject] = useState<string>('Pendidikan Agama Islam');
 
-  // Refs for Debouncing API Calls
-  const saveTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Manual Save Refs/State
   const pendingSaveData = useRef<Record<string, SemesterData>>({});
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // --- INITIAL DATA LOAD ---
   useEffect(() => {
@@ -146,7 +149,11 @@ function App() {
         return { name: activeTeacherContext.name, nip: activeTeacherContext.nip };
     }
     if (selectedSubject === 'Pendidikan Agama Islam') {
-        return { name: settings.teacherName, nip: settings.teacherNip };
+        // If PAI but no specific teacher selected (legacy or fallback), use Settings or a default
+        // But since we removed settings inputs, better to default to generic or empty if not found
+        // However, to keep backward compatibility with existing data, we might need a fallback.
+        // Let's assume PAI is also in the teachers list now.
+        return { name: settings.teacherName || 'Guru PAI', nip: settings.teacherNip || '-' };
     }
     return { name: '.........................', nip: '.........................' };
   }, [activeTeacherContext, settings, selectedSubject]);
@@ -294,7 +301,7 @@ function App() {
     field: FormativeKey | null,
     value: number | null
   ) => {
-    // 1. Optimistic Update Local State & Prepare Data for API
+    // 1. Update Local State immediately
     setStudents((prev) => {
         const studentIndex = prev.findIndex(s => s.id === id);
         if (studentIndex === -1) return prev;
@@ -328,7 +335,7 @@ function App() {
            currentSemesterData[chapter][field] = value;
         }
 
-        // IMPORTANT: Update Payload Ref synchronously inside the update to ensure it matches state exactly
+        // IMPORTANT: Update Payload Ref synchronously inside the update
         const payloadKey = `${id}-${selectedSubject}-${selectedSemester}`;
         pendingSaveData.current[payloadKey] = currentSemesterData;
 
@@ -352,29 +359,49 @@ function App() {
         return newArr;
     });
 
-    // 2. Debounce API Call
-    // Key by Student+Subject to prevent flooding for a single record
-    const timeoutKey = `${id}-${selectedSubject}`;
-    
-    if (saveTimeouts.current[timeoutKey]) {
-      clearTimeout(saveTimeouts.current[timeoutKey]);
-    }
+    // 2. Mark as Unsaved - NO AUTO SAVE
+    setHasUnsavedChanges(true);
+  };
 
-    saveTimeouts.current[timeoutKey] = setTimeout(async () => {
-       const payloadKey = `${id}-${selectedSubject}-${selectedSemester}`;
-       const dataToSend = pendingSaveData.current[payloadKey];
-       
-       if (dataToSend) {
-         try {
-             // console.log(`Saving data for Student ${id}...`);
-             await api.saveGrade(id, selectedSubject, selectedSemester, dataToSend);
-         } catch(e) {
-             console.error("Failed to save grade:", e);
-         }
-       }
-       
-       delete saveTimeouts.current[timeoutKey];
-    }, 1500); // 1.5 Second delay to effectively batch rapid typing
+  // NEW: Manual Save Function with ID fix
+  const handleManualSave = async () => {
+      setIsSaving(true);
+      const changes = Object.keys(pendingSaveData.current);
+      
+      if (changes.length === 0) {
+          setIsSaving(false);
+          setHasUnsavedChanges(false);
+          alert("Tidak ada perubahan untuk disimpan.");
+          return;
+      }
+
+      try {
+          const promises = changes.map(async (key) => {
+              const [idStr, subject, semester] = key.split('-');
+              // Reconstruct subject if it contained dashes, e.g. "Bahasa-Indo"
+              // Logic: take substring after first dash and before last dash
+              const subjectVal = key.substring(idStr.length + 1, key.lastIndexOf('-'));
+              const semesterVal = semester as SemesterKey;
+              
+              const data = pendingSaveData.current[key];
+              
+              // Pass ID directly as STRING to match spreadsheet format and prevent "stacking/duplication"
+              await api.saveGrade(idStr, subjectVal, semesterVal, data);
+          });
+
+          await Promise.all(promises);
+
+          // Clear pending data after successful save
+          pendingSaveData.current = {};
+          setHasUnsavedChanges(false);
+          alert("Data berhasil disimpan ke server!");
+
+      } catch (error) {
+          console.error("Manual save failed", error);
+          alert("Gagal menyimpan data. Silakan coba lagi.");
+      } finally {
+          setIsSaving(false);
+      }
   };
 
   const handleResetClassGrades = (className: string) => {
@@ -543,6 +570,64 @@ function App() {
       return [66, 133, 244]; // Default Blue
   };
 
+  const handleDownloadExcel = () => {
+    const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
+    const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
+
+    // Prepare Headers
+    const headers = ['No', 'NIS', 'Nama Siswa', 'Kelas'];
+    
+    // Add Chapter Headers
+    visibleKeys.forEach(k => {
+        const num = k.replace('bab', '');
+        const label = selectedSemester === 'genap' ? `Bab ${parseInt(num) + 5}` : `Bab ${num}`;
+        ['F1', 'F2', 'F3', 'F4', 'F5', 'Sumatif', 'Rerata'].forEach(sub => {
+            headers.push(`${label} - ${sub}`);
+        });
+    });
+    
+    headers.push('KTS', 'SAS', 'Nilai Akhir');
+
+    // Prepare Data
+    const data = filteredStudents.map((s, idx) => {
+        const semesterData = s.grades[selectedSemester];
+        const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, currentVisibleChapters);
+        
+        const row: any = {
+            'No': idx + 1,
+            'NIS': s.nis,
+            'Nama Siswa': s.name,
+            'Kelas': s.kelas
+        };
+
+        visibleKeys.forEach(k => {
+            const grade = semesterData[k];
+            const avg = calculateChapterAverage(grade, activeFieldsMap[k]);
+            const num = k.replace('bab', '');
+            const label = selectedSemester === 'genap' ? `Bab ${parseInt(num) + 5}` : `Bab ${num}`;
+
+            row[`${label} - F1`] = grade.f1;
+            row[`${label} - F2`] = grade.f2;
+            row[`${label} - F3`] = grade.f3;
+            row[`${label} - F4`] = grade.f4;
+            row[`${label} - F5`] = grade.f5;
+            row[`${label} - Sumatif`] = grade.sum;
+            row[`${label} - Rerata`] = avg;
+        });
+
+        row['KTS'] = semesterData.kts;
+        row['SAS'] = semesterData.sas;
+        row['Nilai Akhir'] = finalGrade;
+
+        return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Nilai Siswa");
+    XLSX.writeFile(wb, `Nilai_${selectedSubject}_${selectedClass}_${selectedSemester}.xlsx`);
+  };
+
   const handleDownloadPDF = () => {
       // Landscape orientation with A4 size
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -676,7 +761,9 @@ function App() {
 
       // Names (Centered)
       doc.setFont("helvetica", "bold");
+      // Use settings.principalName for Principal
       doc.text(settings.principalName, leftCenter, nameY, { align: "center" });
+      // Use currentTeacherSignature for Teacher
       doc.text(currentTeacherSignature.name, rightCenter, nameY, { align: "center" });
 
       // NIPs (Centered)
@@ -824,29 +911,6 @@ function App() {
                       </div>
                   </div>
 
-                  {/* PAI Teacher Info (Default) */}
-                  <div className="space-y-4">
-                      <h3 className="font-bold text-gray-700 border-b pb-2">Guru PAI (Default)</h3>
-                       <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Nama Guru PAI</label>
-                          <input 
-                            type="text" 
-                            value={settings.teacherName}
-                            onChange={(e) => setSettings({...settings, teacherName: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                          />
-                      </div>
-                      <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">NIP Guru PAI</label>
-                          <input 
-                            type="text" 
-                            value={settings.teacherNip}
-                            onChange={(e) => setSettings({...settings, teacherNip: e.target.value})}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                          />
-                      </div>
-                  </div>
-
                   {/* Security */}
                   <div className="space-y-4">
                       <h3 className="font-bold text-gray-700 border-b pb-2 flex items-center gap-2"><Lock size={16} /> Keamanan</h3>
@@ -891,81 +955,143 @@ function App() {
     return (
       <div className="flex-1 flex flex-col h-full bg-white relative">
         {/* Top Bar inside Content Area */}
-        <div className="px-6 py-4 border-b border-gray-200 bg-white sticky top-0 z-40 flex justify-between items-center shadow-sm">
-            <div className="flex items-center gap-4">
-                {/* Subject Selector */}
-                <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-blue-600">
-                        <BookOpen size={18} />
+        <div className="px-6 py-4 border-b border-gray-200 bg-white sticky top-0 z-40 shadow-sm overflow-x-auto">
+            <div className="flex justify-between items-center min-w-max gap-4">
+                <div className="flex items-center gap-4">
+                    {/* Admin Teacher Selector - NEW */}
+                    {userRole === 'admin' && (
+                        <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+                                <Users size={18} />
+                            </div>
+                            <select
+                                value={adminSelectedTeacherName}
+                                onChange={(e) => setAdminSelectedTeacherName(e.target.value)}
+                                className="pl-10 pr-8 py-2 bg-gray-50 border border-gray-200 text-gray-800 text-sm font-bold rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none cursor-pointer hover:bg-gray-100 min-w-[200px]"
+                            >
+                                {Array.from(new Set(teachers.map(t => t.name))).sort().map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                            <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-gray-400">
+                                <ChevronDown size={14} />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Subject Selector */}
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-blue-600">
+                            <BookOpen size={18} />
+                        </div>
+                        <select
+                            value={selectedSubject}
+                            onChange={(e) => setSelectedSubject(e.target.value)}
+                            className="pl-10 pr-8 py-2 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-bold rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none cursor-pointer transition-colors hover:bg-blue-100 min-w-[200px]"
+                        >
+                            {availableSubjects.map(sub => (
+                                <option key={sub} value={sub}>{sub}</option>
+                            ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-blue-400">
+                            <ChevronDown size={14} />
+                        </div>
                     </div>
-                    <select
-                        value={selectedSubject}
-                        onChange={(e) => setSelectedSubject(e.target.value)}
-                        className="pl-10 pr-8 py-2 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-bold rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none cursor-pointer transition-colors hover:bg-blue-100 min-w-[200px]"
-                    >
-                        {availableSubjects.map(sub => (
-                            <option key={sub} value={sub}>{sub}</option>
-                        ))}
-                    </select>
-                    <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-blue-400">
-                        <ChevronDown size={14} />
+
+                    {/* Class Selector */}
+                    <div className="relative">
+                        <select
+                            value={selectedClass}
+                            onChange={(e) => setSelectedClass(e.target.value)}
+                            className="pl-4 pr-8 py-2 bg-gray-100 border border-gray-200 text-gray-700 text-sm font-bold rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none appearance-none cursor-pointer hover:bg-gray-200"
+                        >
+                            {availableClasses.map(cls => (
+                                <option key={cls} value={cls}>{cls}</option>
+                            ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-gray-400">
+                            <ChevronDown size={14} />
+                        </div>
                     </div>
+
+                    {/* Semester Toggle */}
+                    <div className="flex bg-gray-100 p-1 rounded-lg">
+                        <button
+                            onClick={() => setSelectedSemester('ganjil')}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'ganjil' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            Ganjil
+                        </button>
+                        <button
+                            onClick={() => setSelectedSemester('genap')}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'genap' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            Genap
+                        </button>
+                    </div>
+
+                    {/* NEW: Input Grade Button in Toolbar - HIDDEN FOR ADMIN */}
+                    {userRole !== 'admin' && (
+                        <button
+                            onClick={() => setIsInputModalOpen(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md active:scale-95 font-bold text-sm ml-2"
+                        >
+                            <Unlock size={16} />
+                            <span>Buka Input Nilai</span>
+                        </button>
+                    )}
                 </div>
 
-                {/* Class Selector */}
-                <div className="relative">
-                    <select
-                        value={selectedClass}
-                        onChange={(e) => setSelectedClass(e.target.value)}
-                        className="pl-4 pr-8 py-2 bg-gray-100 border border-gray-200 text-gray-700 text-sm font-bold rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none appearance-none cursor-pointer hover:bg-gray-200"
-                    >
-                        {availableClasses.map(cls => (
-                            <option key={cls} value={cls}>{cls}</option>
-                        ))}
-                    </select>
-                    <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-gray-400">
-                        <ChevronDown size={14} />
-                    </div>
-                </div>
-
-                {/* Semester Toggle */}
-                <div className="flex bg-gray-100 p-1 rounded-lg">
+                <div className="flex items-center gap-2">
                     <button
-                        onClick={() => setSelectedSemester('ganjil')}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'ganjil' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        onClick={() => setIsChapterConfigModalOpen(true)}
+                        className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Konfigurasi Bab (Tampilkan/Sembunyikan)"
                     >
-                        Ganjil
+                        <SlidersHorizontal size={20} />
                     </button>
-                    <button
-                        onClick={() => setSelectedSemester('genap')}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'genap' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                    
+                    {/* Excel Download */}
+                    <button 
+                        onClick={handleDownloadExcel}
+                        className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-100"
+                        title="Download Excel"
                     >
-                        Genap
+                        <FileSpreadsheet size={20} />
                     </button>
-                </div>
-            </div>
 
-            <div className="flex items-center gap-2">
-                 <button
-                    onClick={() => setIsChapterConfigModalOpen(true)}
-                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="Konfigurasi Bab (Tampilkan/Sembunyikan)"
-                 >
-                    <SlidersHorizontal size={20} />
-                 </button>
-                 <div className="h-6 w-px bg-gray-300 mx-1"></div>
-                 <button 
-                    onClick={handleDownloadPDF}
-                    className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
-                    title="Download PDF Laporan"
-                 >
-                    <FileText size={20} />
-                 </button>
+                    <button 
+                        onClick={handleDownloadPDF}
+                        className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
+                        title="Download PDF Laporan"
+                    >
+                        <FileText size={20} />
+                    </button>
+
+                    <div className="h-6 w-px bg-gray-300 mx-1"></div>
+
+                    {/* Manual Save Button - HIDDEN FOR ADMIN */}
+                    {userRole !== 'admin' && (
+                        <button 
+                            onClick={handleManualSave}
+                            disabled={!hasUnsavedChanges || isSaving}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-sm ${
+                                hasUnsavedChanges 
+                                ? 'bg-indigo-600 text-white hover:bg-indigo-700 animate-pulse-soft shadow-indigo-200' 
+                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            }`}
+                        >
+                            {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                            <span>{isSaving ? 'Menyimpan...' : 'Simpan Data'}</span>
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
 
-        {/* Scrollable Grade Table Area */}
-        <div className="flex-1 overflow-hidden relative">
+        {/* Scrollable Content Area: GradeTable + History */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar relative">
             <GradeTable 
                 students={filteredStudents}
                 selectedSemester={selectedSemester}
@@ -974,35 +1100,12 @@ function App() {
                 assessmentHistory={classHistory}
                 academicYear={settings.academicYear}
                 onUpdateScore={handleUpdateScore}
-                isEditable={true} // Always editable in this view if history is open
+                isEditable={userRole !== 'admin'} // Disable edit for admin
             />
-        </div>
 
-        {/* Bottom Action Bar */}
-        <div className="px-6 py-4 bg-white border-t border-gray-200 flex justify-between items-center shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-             <div className="text-sm text-gray-500">
-                <span className="font-bold text-gray-800">{filteredStudents.length}</span> Siswa di Kelas {selectedClass}
-             </div>
-             
-             <div className="flex items-center gap-4">
-                 <button
-                    onClick={() => setIsInputModalOpen(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95 font-bold text-sm"
-                 >
-                    <Unlock size={18} />
-                    <span>Buka Input Nilai</span>
-                 </button>
-             </div>
-        </div>
-
-        {/* History Panel (Collapsible?) - For now just at bottom or separate modal? 
-            Let's put it in a slide-up or just below table if space permits.
-            Actually, let's make it a button triggered modal or sidebar.
-            For simplicity based on previous design, let's keep it below but styled better.
-        */}
-        {classHistory.length > 0 && (
-             <div className="bg-gray-50 border-t border-gray-200">
-                <div className="max-h-64 overflow-auto custom-scrollbar">
+            {/* History Panel inside scroll view */}
+            {classHistory.length > 0 && (
+                 <div className="bg-gray-50 border-t border-gray-200">
                      <AssessmentHistory 
                         history={classHistory} 
                         currentSemester={selectedSemester}
@@ -1010,9 +1113,22 @@ function App() {
                         onDelete={handleDeleteSession}
                         onResetHistory={handleResetHistory}
                     />
-                </div>
+                 </div>
+            )}
+        </div>
+
+        {/* Bottom Bar: Stats Only */}
+        <div className="px-6 py-3 bg-white border-t border-gray-200 flex justify-between items-center shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+             <div className="text-sm text-gray-500">
+                <span className="font-bold text-gray-800">{filteredStudents.length}</span> Siswa di Kelas {selectedClass}
              </div>
-        )}
+             {hasUnsavedChanges && userRole !== 'admin' && (
+                 <div className="text-sm text-orange-600 font-bold flex items-center gap-2">
+                    <AlertTriangle size={16} />
+                    Ada perubahan belum disimpan!
+                 </div>
+             )}
+        </div>
       </div>
     );
   };
