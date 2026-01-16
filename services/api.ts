@@ -6,7 +6,8 @@ const API_URL = "https://script.google.com/macros/s/AKfycbx4tj_ypUoBmKv856qwqz6F
 
 export const fetchInitialData = async () => {
   try {
-    const response = await fetch(`${API_URL}?action=getInitialData`);
+    // Add timestamp cache buster to ensure we always get fresh data from server
+    const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const json = await response.json();
     return json.data;

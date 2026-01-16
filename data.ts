@@ -16,8 +16,9 @@ const emptySemester: SemesterData = {
 };
 
 // Helper to create data easily
+// CHANGED: Use parseInt(nis) for stable ID. Fallback to random if NIS is invalid.
 const s = (no: number, nis: string, name: string, kelas: string, gender: 'L' | 'P'): Student => ({
-  id: parseInt(nis) + Math.random(), // Ensure unique ID
+  id: parseInt(nis) || (Date.now() + Math.floor(Math.random() * 1000)), 
   no,
   nis,
   name: name.replace(/"/g, ''), // Remove quotes if any

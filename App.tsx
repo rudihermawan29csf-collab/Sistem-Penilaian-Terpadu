@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { initialStudents, initialTeachers } from './data';
 import { Student, ChapterKey, FormativeKey, ChapterGrades, SemesterKey, SemesterData, GradingSession, AppSettings, Teacher } from './types';
 import { getActiveFields, calculateChapterAverage, calculateFinalGrade, formatNumber, createEmptySemesterData } from './utils';
@@ -78,6 +77,10 @@ function App() {
   
   // NEW: Multi-subject selection state
   const [selectedSubject, setSelectedSubject] = useState<string>('Pendidikan Agama Islam');
+
+  // Refs for Debouncing API Calls
+  const saveTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingSaveData = useRef<Record<string, SemesterData>>({});
 
   // --- INITIAL DATA LOAD ---
   useEffect(() => {
@@ -291,15 +294,20 @@ function App() {
     field: FormativeKey | null,
     value: number | null
   ) => {
-    setStudents((prev) =>
-      prev.map((student) => {
-        if (student.id !== id) return student;
-
+    // 1. Optimistic Update Local State & Prepare Data for API
+    setStudents((prev) => {
+        const studentIndex = prev.findIndex(s => s.id === id);
+        if (studentIndex === -1) return prev;
+        
+        const student = prev[studentIndex];
+        
+        // Create Deep Copy of needed structures to avoid mutation
         let newGradesBySubject = { ...(student.gradesBySubject || {}) };
         let currentSemesterData: SemesterData;
 
+        // Logic to get current data and ensure structure exists
         if (selectedSubject === 'Pendidikan Agama Islam') {
-            currentSemesterData = { ...student.grades[selectedSemester] };
+            currentSemesterData = JSON.parse(JSON.stringify(student.grades[selectedSemester]));
         } else {
             if (!newGradesBySubject[selectedSubject]) {
                 newGradesBySubject[selectedSubject] = {
@@ -307,42 +315,66 @@ function App() {
                     genap: createEmptySemesterData()
                 };
             }
-            currentSemesterData = { ...newGradesBySubject[selectedSubject][selectedSemester] };
+             if (!newGradesBySubject[selectedSubject][selectedSemester]) {
+                 newGradesBySubject[selectedSubject][selectedSemester] = createEmptySemesterData();
+            }
+            currentSemesterData = JSON.parse(JSON.stringify(newGradesBySubject[selectedSubject][selectedSemester]));
         }
 
+        // Apply Change
         if (chapter === 'kts' || chapter === 'sas') {
           currentSemesterData[chapter] = value;
         } else if (field) {
-           currentSemesterData[chapter] = {
-             ...(currentSemesterData[chapter] as ChapterGrades),
-             [field]: value
-           };
+           currentSemesterData[chapter][field] = value;
         }
 
-        // Trigger API Save (Debounce logic ideal here, but direct call for simplicity of this snippet)
-        // In production, use debounce or a "Save" button to avoid spamming the API
-        api.saveGrade(student.id, selectedSubject, selectedSemester, currentSemesterData);
+        // IMPORTANT: Update Payload Ref synchronously inside the update to ensure it matches state exactly
+        const payloadKey = `${id}-${selectedSubject}-${selectedSemester}`;
+        pendingSaveData.current[payloadKey] = currentSemesterData;
 
+        // Construct New Student Object
+        const newStudent = { ...student };
         if (selectedSubject === 'Pendidikan Agama Islam') {
-            return {
-                ...student,
-                grades: {
-                    ...student.grades,
-                    [selectedSemester]: currentSemesterData
-                }
+            newStudent.grades = {
+                ...student.grades,
+                [selectedSemester]: currentSemesterData
             };
         } else {
-            newGradesBySubject[selectedSubject] = {
+             newGradesBySubject[selectedSubject] = {
                 ...newGradesBySubject[selectedSubject],
                 [selectedSemester]: currentSemesterData
             };
-            return {
-                ...student,
-                gradesBySubject: newGradesBySubject
-            };
+            newStudent.gradesBySubject = newGradesBySubject;
         }
-      })
-    );
+
+        const newArr = [...prev];
+        newArr[studentIndex] = newStudent;
+        return newArr;
+    });
+
+    // 2. Debounce API Call
+    // Key by Student+Subject to prevent flooding for a single record
+    const timeoutKey = `${id}-${selectedSubject}`;
+    
+    if (saveTimeouts.current[timeoutKey]) {
+      clearTimeout(saveTimeouts.current[timeoutKey]);
+    }
+
+    saveTimeouts.current[timeoutKey] = setTimeout(async () => {
+       const payloadKey = `${id}-${selectedSubject}-${selectedSemester}`;
+       const dataToSend = pendingSaveData.current[payloadKey];
+       
+       if (dataToSend) {
+         try {
+             // console.log(`Saving data for Student ${id}...`);
+             await api.saveGrade(id, selectedSubject, selectedSemester, dataToSend);
+         } catch(e) {
+             console.error("Failed to save grade:", e);
+         }
+       }
+       
+       delete saveTimeouts.current[timeoutKey];
+    }, 1500); // 1.5 Second delay to effectively batch rapid typing
   };
 
   const handleResetClassGrades = (className: string) => {
@@ -655,586 +687,525 @@ function App() {
       doc.save(`Nilai_${selectedSubject}_${selectedClass}_${selectedSemester}.pdf`);
   };
 
-  const handleDownloadExcel = () => {
-    const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
-    // Filter visible chapters
-    const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
-
-    // CSV Header
-    const header = [
-        "No", "NIS", "Nama",
-        // Flatten chapters: F1-F5, Sum, Avg
-        ...visibleKeys.flatMap(c => {
-             const label = selectedSemester === 'genap' ? `Bab ${parseInt(c.slice(3)) + 5}` : `Bab ${c.slice(3)}`;
-             return [`${label} F1`, `${label} F2`, `${label} F3`, `${label} F4`, `${label} F5`, `${label} Sum`, `${label} Rerata`]
-        }),
-        "KTS", "SAS", "Nilai Akhir"
-    ].join(",");
-
-    // CSV Rows
-    const rows = filteredStudents.map((s, idx) => {
-        const semesterData = s.grades[selectedSemester];
-        // Ensure final grade uses configuration
-        const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, currentVisibleChapters);
-        
-        const basicInfo = [idx + 1, s.nis, `"${s.name}"`]; // Quote name for safety
-        
-        const chapterData = visibleKeys.flatMap(c => {
-            const grade = semesterData[c];
-            const avg = calculateChapterAverage(grade, activeFieldsMap[c]);
-            return [
-                grade.f1 ?? '', grade.f2 ?? '', grade.f3 ?? '', grade.f4 ?? '', grade.f5 ?? '',
-                grade.sum ?? '', avg ?? ''
-            ];
-        });
-
-        const evals = [semesterData.kts ?? '', semesterData.sas ?? '', finalGrade ?? ''];
-
-        return [...basicInfo, ...chapterData, ...evals].join(",");
-    });
-
-    const csvContent = "data:text/csv;charset=utf-8," + [header, ...rows].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Nilai_${selectedSubject}_${selectedClass}_${selectedSemester}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // --- LOADING SCREEN ---
-  if (isLoading) {
-      return (
-          <div className="h-screen w-full flex flex-col items-center justify-center bg-gray-50">
-              <Loader2 className="h-10 w-10 text-blue-600 animate-spin mb-4" />
-              <h2 className="text-gray-700 font-bold text-lg">Memuat Data iGrade...</h2>
-              <p className="text-gray-500 text-sm">Menghubungkan ke Database...</p>
-          </div>
-      )
-  }
-
-  // --- RENDER LOGIN PAGE ---
   if (!userRole) {
-    return <LoginPage 
-      students={students} 
-      teachers={teachers} 
-      onLogin={handleLogin} 
-      adminPasswordSettings={settings.adminPassword || 'admin123'}
-      teacherPasswordSettings={settings.teacherDefaultPassword || 'guru123'}
-    />;
-  }
-
-  // --- RENDER STUDENT DASHBOARD ---
-  if (userRole === 'student' && currentUser) {
     return (
-      <StudentDashboard 
-        student={currentUser} 
+      <LoginPage 
+        students={students} 
         teachers={teachers} 
-        allStudents={students} 
-        assessmentHistory={assessmentHistory}
-        settings={settings}
-        subjectChapterConfigs={subjectChapterConfigs} 
-        onLogout={handleLogout} 
+        onLogin={handleLogin}
+        adminPasswordSettings={settings.adminPassword || 'admin123'}
+        teacherPasswordSettings={settings.teacherDefaultPassword || 'guru'}
       />
     );
   }
 
-  // --- RENDER MAIN APP ---
-  return (
-    <div className="h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-gray-100 font-sans">
-      <div className="w-full h-full max-w-[95vw] bg-white rounded-xl shadow-2xl flex border border-gray-200/60 ring-1 ring-black/5 overflow-hidden">
-        
-        {/* Sidebar */}
-        <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#f0f0f5] border-r border-gray-300 flex flex-col shrink-0 transition-all duration-300 ease-in-out`}>
-           <div className="h-16 flex items-center px-5 border-b border-gray-300/50 bg-[#e8e8ed]/50 justify-between">
-            <div className={`flex space-x-2 ${isSidebarCollapsed ? 'hidden' : 'flex'}`}>
-              <div className="w-3 h-3 rounded-full bg-red-400 border border-red-500/30"></div>
-              <div className="w-3 h-3 rounded-full bg-amber-400 border border-amber-500/30"></div>
-              <div className="w-3 h-3 rounded-full bg-green-400 border border-green-500/30"></div>
-            </div>
-            
-            {!isSidebarCollapsed && (
-              <span className="font-semibold text-gray-600 text-sm tracking-tight ml-2">
-                {userRole === 'admin' ? 'Admin Panel' : 'Guru Panel'}
-              </span>
-            )}
+  // --- RENDER MAIN LAYOUT ---
 
-            <button 
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1 rounded hover:bg-gray-200 text-gray-500"
-            >
-              {isSidebarCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
-            </button>
-          </div>
+  // Determine which component to render in the main area
+  const renderContent = () => {
+    if (activeTab === 'students') {
+      return (
+        <StudentDataTable 
+          students={students} 
+          onAdd={handleAddStudentClick} 
+          onEdit={handleEditStudentClick} 
+          onDelete={handleDeleteStudent}
+          onImport={handleImportStudents}
+        />
+      );
+    }
+    
+    if (activeTab === 'monitoring_tanggungan') {
+        return (
+            <MonitoringView 
+                type="tanggungan" 
+                students={allStudentsMapped}
+                history={assessmentHistory}
+                currentSemester={selectedSemester}
+                subjectName={selectedSubject}
+                teacherName={activeTeacherContext?.name}
+                teacherNip={activeTeacherContext?.nip}
+                principalName={settings.principalName}
+                principalNip={settings.principalNip}
+                academicYear={settings.academicYear}
+            />
+        );
+    }
 
-          <div className="p-3 space-y-1 overflow-y-auto custom-scrollbar flex-1 flex flex-col">
-             {/* MENU GROUPS */}
-             <div className="mb-4">
-                <p className={`px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ${isSidebarCollapsed ? 'text-center' : ''}`}>
-                  {isSidebarCollapsed ? 'M' : 'Manajemen'}
-                </p>
-                <button
-                onClick={() => setActiveTab('grades')}
-                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'grades' 
-                    ? 'bg-blue-500 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200/60'
-                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                >
-                    <BookOpen size={18} />
-                    {!isSidebarCollapsed && <span>Input Nilai</span>}
-                </button>
-                
-                {userRole === 'admin' && (
-                    <>
-                        <button
-                        onClick={() => setActiveTab('students')}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            activeTab === 'students' 
-                            ? 'bg-blue-500 text-white shadow-sm' 
-                            : 'text-gray-600 hover:bg-gray-200/60'
-                        } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                        >
-                            <Users size={18} />
-                            {!isSidebarCollapsed && <span>Data Siswa</span>}
-                        </button>
-                        <button
-                        onClick={() => setActiveTab('teachers')}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            activeTab === 'teachers' 
-                            ? 'bg-blue-500 text-white shadow-sm' 
-                            : 'text-gray-600 hover:bg-gray-200/60'
-                        } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                        >
-                            <UserCheck size={18} />
-                            {!isSidebarCollapsed && <span>Data Guru</span>}
-                        </button>
-                    </>
-                )}
-            </div>
+    if (activeTab === 'monitoring_remidi') {
+        return (
+            <MonitoringView 
+                type="remidi" 
+                students={allStudentsMapped}
+                history={assessmentHistory}
+                currentSemester={selectedSemester}
+                subjectName={selectedSubject}
+                teacherName={activeTeacherContext?.name}
+                teacherNip={activeTeacherContext?.nip}
+                principalName={settings.principalName}
+                principalNip={settings.principalNip}
+                academicYear={settings.academicYear}
+            />
+        );
+    }
 
-            <div className="mb-4">
-                <p className={`px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ${isSidebarCollapsed ? 'text-center' : ''}`}>
-                  {isSidebarCollapsed ? 'Mon' : 'Monitoring'}
-                </p>
-                
-                {/* Available for BOTH Admin and Teacher */}
-                <button
-                onClick={() => setActiveTab('monitoring_tanggungan')}
-                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'monitoring_tanggungan' 
-                    ? 'bg-red-500 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200/60'
-                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                >
-                    <AlertCircle size={18} />
-                    {!isSidebarCollapsed && <span>Tanggungan</span>}
-                </button>
+    if (activeTab === 'reset') {
+        return (
+            <ResetDataView 
+                availableClasses={availableClasses}
+                currentSemester={selectedSemester}
+                onResetClass={handleResetClassGrades}
+            />
+        );
+    }
 
-                <button
-                onClick={() => setActiveTab('monitoring_remidi')}
-                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'monitoring_remidi' 
-                    ? 'bg-orange-500 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200/60'
-                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                >
-                    <RefreshCw size={18} />
-                    {!isSidebarCollapsed && <span>Remidi</span>}
-                </button>
-                
-                {userRole === 'admin' && (
-                    <button
-                    onClick={() => setActiveTab('monitoring_guru')}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        activeTab === 'monitoring_guru' 
-                        ? 'bg-green-600 text-white shadow-sm' 
-                        : 'text-gray-600 hover:bg-gray-200/60'
-                    } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                    >
-                        <BarChart2 size={18} />
-                        {!isSidebarCollapsed && <span>Monitoring Guru</span>}
-                    </button>
-                )}
+    if (activeTab === 'teachers') {
+      return <TeacherDataView teachers={teachers} setTeachers={handleSaveTeacher} />;
+    }
 
-                 {userRole === 'admin' && (
-                    <button
-                    onClick={() => setActiveTab('reset')}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        activeTab === 'reset' 
-                        ? 'bg-red-500 text-white shadow-sm' 
-                        : 'text-gray-600 hover:bg-gray-200/60'
-                    } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                    >
-                        <AlertTriangle size={18} />
-                        {!isSidebarCollapsed && <span>Reset Data</span>}
-                    </button>
-                )}
-             </div>
+    if (activeTab === 'monitoring_guru') {
+        return <TeacherMonitoringView teachers={teachers} history={assessmentHistory} currentSemester={selectedSemester} />;
+    }
 
-             {/* Footer Group with User Info */}
-             <div className="mt-auto border-t border-gray-200 pt-3">
-                 {/* User Profile Display */}
-                 {!isSidebarCollapsed && (
-                    <div className="px-3 py-2 mb-2 bg-gray-200/50 rounded-lg mx-1 flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                             <User size={16} />
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Pengguna</p>
-                             <p className="text-xs font-bold text-gray-700 truncate" title={userRole === 'admin' ? 'Administrator' : currentTeacher?.name || settings.teacherName}>
-                                {userRole === 'admin' ? 'Administrator' : currentTeacher?.name || settings.teacherName}
-                             </p>
-                        </div>
+    if (activeTab === 'settings') {
+      return (
+        <div className="p-8">
+           <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center gap-2">
+              <Settings className="text-gray-600" /> Pengaturan Aplikasi
+           </h2>
+           <form onSubmit={handleUpdateSettings} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm max-w-4xl space-y-6">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Academic Info */}
+                  <div className="space-y-4">
+                      <h3 className="font-bold text-gray-700 border-b pb-2">Data Akademik</h3>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Tahun Ajaran</label>
+                          <input 
+                            type="text" 
+                            value={settings.academicYear}
+                            onChange={(e) => setSettings({...settings, academicYear: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Semester Aktif</label>
+                          <select
+                             value={settings.activeSemester}
+                             onChange={(e) => setSettings({...settings, activeSemester: e.target.value as SemesterKey})}
+                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                          >
+                             <option value="ganjil">Ganjil</option>
+                             <option value="genap">Genap</option>
+                          </select>
+                      </div>
+                  </div>
+
+                  {/* Principal Info */}
+                  <div className="space-y-4">
+                      <h3 className="font-bold text-gray-700 border-b pb-2">Data Kepala Sekolah</h3>
+                       <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nama Kepala Sekolah</label>
+                          <input 
+                            type="text" 
+                            value={settings.principalName}
+                            onChange={(e) => setSettings({...settings, principalName: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">NIP Kepala Sekolah</label>
+                          <input 
+                            type="text" 
+                            value={settings.principalNip}
+                            onChange={(e) => setSettings({...settings, principalNip: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                          />
+                      </div>
+                  </div>
+
+                  {/* PAI Teacher Info (Default) */}
+                  <div className="space-y-4">
+                      <h3 className="font-bold text-gray-700 border-b pb-2">Guru PAI (Default)</h3>
+                       <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nama Guru PAI</label>
+                          <input 
+                            type="text" 
+                            value={settings.teacherName}
+                            onChange={(e) => setSettings({...settings, teacherName: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">NIP Guru PAI</label>
+                          <input 
+                            type="text" 
+                            value={settings.teacherNip}
+                            onChange={(e) => setSettings({...settings, teacherNip: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                          />
+                      </div>
+                  </div>
+
+                  {/* Security */}
+                  <div className="space-y-4">
+                      <h3 className="font-bold text-gray-700 border-b pb-2 flex items-center gap-2"><Lock size={16} /> Keamanan</h3>
+                       <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Password Admin</label>
+                          <input 
+                            type="text" 
+                            value={settings.adminPassword || ''}
+                            onChange={(e) => setSettings({...settings, adminPassword: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 font-mono"
+                            placeholder="Default: admin123"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Password Default Guru</label>
+                          <input 
+                            type="text" 
+                            value={settings.teacherDefaultPassword || ''}
+                            onChange={(e) => setSettings({...settings, teacherDefaultPassword: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 font-mono"
+                            placeholder="Default: guru"
+                          />
+                      </div>
+                  </div>
+              </div>
+
+              <div className="pt-4 flex justify-end">
+                  <button 
+                    type="submit"
+                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+                  >
+                    <Save size={18} />
+                    Simpan Pengaturan
+                  </button>
+              </div>
+           </form>
+        </div>
+      );
+    }
+
+    // Default: Grades View
+    return (
+      <div className="flex-1 flex flex-col h-full bg-white relative">
+        {/* Top Bar inside Content Area */}
+        <div className="px-6 py-4 border-b border-gray-200 bg-white sticky top-0 z-40 flex justify-between items-center shadow-sm">
+            <div className="flex items-center gap-4">
+                {/* Subject Selector */}
+                <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-blue-600">
+                        <BookOpen size={18} />
                     </div>
-                 )}
-
-                 {/* ADDED: Settings Button for Admin */}
-                 {userRole === 'admin' && (
-                    <button
-                        onClick={() => setActiveTab('settings')}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            activeTab === 'settings' 
-                            ? 'bg-gray-800 text-white shadow-sm' 
-                            : 'text-gray-600 hover:bg-gray-200/60'
-                        } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                    <select
+                        value={selectedSubject}
+                        onChange={(e) => setSelectedSubject(e.target.value)}
+                        className="pl-10 pr-8 py-2 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-bold rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none cursor-pointer transition-colors hover:bg-blue-100 min-w-[200px]"
                     >
-                        <SlidersHorizontal size={18} />
-                        {!isSidebarCollapsed && <span>Pengaturan</span>}
-                    </button>
-                 )}
+                        {availableSubjects.map(sub => (
+                            <option key={sub} value={sub}>{sub}</option>
+                        ))}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-blue-400">
+                        <ChevronDown size={14} />
+                    </div>
+                </div>
 
+                {/* Class Selector */}
+                <div className="relative">
+                    <select
+                        value={selectedClass}
+                        onChange={(e) => setSelectedClass(e.target.value)}
+                        className="pl-4 pr-8 py-2 bg-gray-100 border border-gray-200 text-gray-700 text-sm font-bold rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none appearance-none cursor-pointer hover:bg-gray-200"
+                    >
+                        {availableClasses.map(cls => (
+                            <option key={cls} value={cls}>{cls}</option>
+                        ))}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-gray-400">
+                        <ChevronDown size={14} />
+                    </div>
+                </div>
+
+                {/* Semester Toggle */}
+                <div className="flex bg-gray-100 p-1 rounded-lg">
+                    <button
+                        onClick={() => setSelectedSemester('ganjil')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'ganjil' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Ganjil
+                    </button>
+                    <button
+                        onClick={() => setSelectedSemester('genap')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'genap' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Genap
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2">
                  <button
                     onClick={() => setIsChapterConfigModalOpen(true)}
-                     className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200/60 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Konfigurasi Bab (Tampilkan/Sembunyikan)"
                  >
-                     <Settings size={18} />
-                     {!isSidebarCollapsed && <span>Konfigurasi Bab</span>}
+                    <SlidersHorizontal size={20} />
                  </button>
-                 <button
-                    onClick={handleLogout}
-                     className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                 <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                 <button 
+                    onClick={handleDownloadPDF}
+                    className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
+                    title="Download PDF Laporan"
                  >
-                     <LogOut size={18} />
-                     {!isSidebarCollapsed && <span>Keluar</span>}
+                    <FileText size={20} />
+                 </button>
+            </div>
+        </div>
+
+        {/* Scrollable Grade Table Area */}
+        <div className="flex-1 overflow-hidden relative">
+            <GradeTable 
+                students={filteredStudents}
+                selectedSemester={selectedSemester}
+                activeFieldsMap={activeFieldsMap}
+                visibleChapters={currentVisibleChapters}
+                assessmentHistory={classHistory}
+                academicYear={settings.academicYear}
+                onUpdateScore={handleUpdateScore}
+                isEditable={true} // Always editable in this view if history is open
+            />
+        </div>
+
+        {/* Bottom Action Bar */}
+        <div className="px-6 py-4 bg-white border-t border-gray-200 flex justify-between items-center shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+             <div className="text-sm text-gray-500">
+                <span className="font-bold text-gray-800">{filteredStudents.length}</span> Siswa di Kelas {selectedClass}
+             </div>
+             
+             <div className="flex items-center gap-4">
+                 <button
+                    onClick={() => setIsInputModalOpen(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95 font-bold text-sm"
+                 >
+                    <Unlock size={18} />
+                    <span>Buka Input Nilai</span>
                  </button>
              </div>
-          </div>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-            {/* Header */}
-            <div className="min-h-16 flex flex-col justify-center px-6 border-b border-gray-200 bg-white shrink-0 py-3 gap-3">
-               <div>
-                  <h2 className="text-xl font-bold text-gray-800 leading-tight">
-                      {activeTab === 'grades' && 'Input Nilai Siswa'}
-                      {activeTab === 'students' && 'Data Siswa'}
-                      {activeTab === 'teachers' && 'Data Guru'}
-                      {activeTab === 'monitoring_guru' && 'Monitoring Guru'}
-                      {activeTab === 'reset' && 'Reset Data'}
-                      {activeTab === 'monitoring_tanggungan' && 'Monitoring Tanggungan'}
-                      {activeTab === 'monitoring_remidi' && 'Monitoring Remidi'}
-                      {activeTab === 'settings' && 'Pengaturan Aplikasi'}
-                  </h2>
-                  <p className="text-xs text-gray-500 mt-1">
-                      {activeTab === 'grades' && `Kelas ${selectedClass} • ${selectedSubject}`}
-                      {activeTab === 'students' && 'Manajemen Data Siswa'}
-                      {activeTab === 'teachers' && 'Manajemen Data Guru'}
-                      {activeTab === 'monitoring_tanggungan' && 'Daftar Siswa Tanggungan (Nilai 0)'}
-                      {activeTab === 'monitoring_remidi' && 'Daftar Siswa Remidi (Nilai < 70)'}
-                      {activeTab === 'settings' && 'Konfigurasi Sistem & Data Sekolah'}
-                  </p>
-               </div>
-               
-               {activeTab === 'grades' && (
-                 <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap">
-                    <div className="relative min-w-[180px]">
-                        <select
-                            value={selectedSubject}
-                            onChange={(e) => setSelectedSubject(e.target.value)}
-                            className="w-full bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8"
-                        >
-                            {availableSubjects.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </div>
-                    <div className="relative min-w-[100px]">
-                        <select
-                            value={selectedClass}
-                            onChange={(e) => setSelectedClass(e.target.value)}
-                            className="w-full bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8"
-                        >
-                            {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
+        {/* History Panel (Collapsible?) - For now just at bottom or separate modal? 
+            Let's put it in a slide-up or just below table if space permits.
+            Actually, let's make it a button triggered modal or sidebar.
+            For simplicity based on previous design, let's keep it below but styled better.
+        */}
+        {classHistory.length > 0 && (
+             <div className="bg-gray-50 border-t border-gray-200">
+                <div className="max-h-64 overflow-auto custom-scrollbar">
+                     <AssessmentHistory 
+                        history={classHistory} 
+                        currentSemester={selectedSemester}
+                        onEdit={handleEditSession}
+                        onDelete={handleDeleteSession}
+                        onResetHistory={handleResetHistory}
+                    />
+                </div>
+             </div>
+        )}
+      </div>
+    );
+  };
 
-                    <div className="relative min-w-[140px]">
-                         <select
-                            value={selectedSemester}
-                            onChange={(e) => setSelectedSemester(e.target.value as SemesterKey)}
-                            className="w-full bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 pr-8"
-                        >
-                            <option value="ganjil">Sem. Ganjil</option>
-                            <option value="genap">Sem. Genap</option>
-                        </select>
-                    </div>
+  // Student Dashboard View
+  if (userRole === 'student' && currentUser) {
+      return (
+        <StudentDashboard 
+            student={currentUser}
+            allStudents={students}
+            assessmentHistory={assessmentHistory}
+            settings={settings}
+            teachers={teachers}
+            onLogout={handleLogout}
+            subjectChapterConfigs={subjectChapterConfigs}
+        />
+      );
+  }
 
-                    <button 
-                        onClick={() => setIsInputModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm font-bold shrink-0"
-                    >
-                        <Plus size={18} />
-                        <span className="hidden sm:inline">Input Nilai</span>
-                        <span className="sm:hidden">Input</span>
-                    </button>
+  return (
+    <div className="flex h-screen w-full bg-[#f5f5f7] font-sans text-gray-900 overflow-hidden">
+      
+      {/* Sidebar Navigation */}
+      <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#1c1c1e] text-gray-300 flex flex-col transition-all duration-300 ease-in-out shrink-0 relative z-50 shadow-2xl`}>
+        {/* Brand */}
+        <div className="h-16 flex items-center px-6 border-b border-gray-800 bg-[#1c1c1e]">
+           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0 text-white font-bold text-xl shadow-lg shadow-blue-900/50">
+             G
+           </div>
+           {!isSidebarCollapsed && (
+             <div className="ml-3 animate-fade-in">
+                <h1 className="font-bold text-white text-lg tracking-tight">iGrade</h1>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold">SMPN 3 Pacet</p>
+             </div>
+           )}
+        </div>
 
-                    <div className="w-px h-8 bg-gray-300 mx-1 hidden sm:block"></div>
-                    
-                    <button onClick={handleDownloadPDF} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200 flex items-center gap-1.5 transition-colors shadow-sm shrink-0" title="Download PDF">
-                        <FileText size={18} />
-                        <span className="text-xs font-bold hidden sm:inline">PDF</span>
-                    </button>
-                    <button onClick={handleDownloadExcel} className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg border border-green-200 flex items-center gap-1.5 transition-colors shadow-sm shrink-0" title="Download Excel">
-                        <FileSpreadsheet size={18} />
-                        <span className="text-xs font-bold hidden sm:inline">Excel</span>
-                    </button>
+        {/* Navigation Items */}
+        <div className="flex-1 overflow-y-auto py-6 space-y-1 custom-scrollbar-dark">
+           {/* Section: Main */}
+           {!isSidebarCollapsed && <div className="px-6 mb-2 text-[10px] font-bold uppercase text-gray-600 tracking-wider">Menu Utama</div>}
+           
+           <button 
+             onClick={() => setActiveTab('grades')}
+             className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'grades' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+           >
+              {activeTab === 'grades' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+              <BookOpen size={20} className={activeTab === 'grades' ? 'text-blue-400' : ''} />
+              {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Input Nilai</span>}
+           </button>
+
+           {userRole === 'admin' && (
+             <button 
+                onClick={() => setActiveTab('students')}
+                className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'students' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+             >
+                {activeTab === 'students' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+                <Users size={20} className={activeTab === 'students' ? 'text-blue-400' : ''} />
+                {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Data Siswa</span>}
+             </button>
+           )}
+
+           {userRole === 'admin' && (
+             <button 
+                onClick={() => setActiveTab('teachers')}
+                className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'teachers' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+             >
+                {activeTab === 'teachers' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+                <UserCheck size={20} className={activeTab === 'teachers' ? 'text-blue-400' : ''} />
+                {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Data Guru</span>}
+             </button>
+           )}
+
+           {/* Section: Monitoring */}
+           {!isSidebarCollapsed && <div className="px-6 mt-6 mb-2 text-[10px] font-bold uppercase text-gray-600 tracking-wider">Monitoring</div>}
+
+           {userRole === 'admin' && (
+             <button 
+                onClick={() => setActiveTab('monitoring_guru')}
+                className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'monitoring_guru' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+             >
+                {activeTab === 'monitoring_guru' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+                <CheckCircle size={20} className={activeTab === 'monitoring_guru' ? 'text-green-400' : ''} />
+                {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Input Guru</span>}
+             </button>
+           )}
+           
+           <button 
+             onClick={() => setActiveTab('monitoring_tanggungan')}
+             className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'monitoring_tanggungan' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+           >
+              {activeTab === 'monitoring_tanggungan' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+              <AlertCircle size={20} className={activeTab === 'monitoring_tanggungan' ? 'text-red-400' : ''} />
+              {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Tanggungan</span>}
+           </button>
+
+           <button 
+             onClick={() => setActiveTab('monitoring_remidi')}
+             className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'monitoring_remidi' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+           >
+              {activeTab === 'monitoring_remidi' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+              <RefreshCw size={20} className={activeTab === 'monitoring_remidi' ? 'text-orange-400' : ''} />
+              {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Remidi</span>}
+           </button>
+
+           {/* Section: System */}
+           {userRole === 'admin' && !isSidebarCollapsed && <div className="px-6 mt-6 mb-2 text-[10px] font-bold uppercase text-gray-600 tracking-wider">Sistem</div>}
+
+            {userRole === 'admin' && (
+             <button 
+                onClick={() => setActiveTab('reset')}
+                className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'reset' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+             >
+                {activeTab === 'reset' && <div className="absolute left-0 w-1 h-full bg-red-600 rounded-r-full"></div>}
+                <Trash2 size={20} className={activeTab === 'reset' ? 'text-red-500' : ''} />
+                {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Reset Data</span>}
+             </button>
+           )}
+
+           {userRole === 'admin' && (
+             <button 
+                onClick={() => setActiveTab('settings')}
+                className={`w-full flex items-center px-6 py-3 transition-colors relative ${activeTab === 'settings' ? 'text-white bg-white/10' : 'hover:text-white hover:bg-white/5'}`}
+             >
+                {activeTab === 'settings' && <div className="absolute left-0 w-1 h-full bg-blue-500 rounded-r-full"></div>}
+                <Settings size={20} className={activeTab === 'settings' ? 'text-gray-400' : ''} />
+                {!isSidebarCollapsed && <span className="ml-3 font-medium text-sm">Pengaturan</span>}
+             </button>
+           )}
+
+        </div>
+
+        {/* Footer Toggle */}
+        <div className="p-4 border-t border-gray-800">
+           <button 
+             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+             className="w-full flex items-center justify-center p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-gray-400"
+           >
+              {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+           </button>
+        </div>
+
+        {/* User Info */}
+        <div className="p-4 bg-[#141416] border-t border-gray-800">
+             <div className="flex items-center gap-3">
+                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                    {userRole === 'admin' ? 'A' : 'G'}
                  </div>
-               )}
-            </div>
-
-            {/* Content Body */}
-            <div className="flex-1 overflow-hidden relative">
-                {activeTab === 'grades' && (
-                    <div className="h-full overflow-y-auto custom-scrollbar flex flex-col bg-white">
-                        <GradeTable 
-                            students={filteredStudents}
-                            selectedSemester={selectedSemester}
-                            activeFieldsMap={activeFieldsMap}
-                            visibleChapters={currentVisibleChapters}
-                            assessmentHistory={classHistory}
-                            academicYear={settings.academicYear}
-                            onUpdateScore={handleUpdateScore}
-                            isEditable={true} 
-                        />
-                        <div className="pb-10">
-                            <AssessmentHistory 
-                               history={classHistory}
-                               currentSemester={selectedSemester}
-                               onEdit={handleEditSession}
-                               onDelete={handleDeleteSession}
-                               onResetHistory={handleResetHistory}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'students' && (
-                    <StudentDataTable 
-                        students={allStudentsMapped}
-                        onAdd={handleAddStudentClick}
-                        onEdit={handleEditStudentClick}
-                        onDelete={handleDeleteStudent}
-                        onImport={handleImportStudents}
-                    />
-                )}
-
-                {activeTab === 'teachers' && (
-                    <TeacherDataView 
-                        teachers={teachers}
-                        setTeachers={handleSaveTeacher}
-                    />
-                )}
-
-                {activeTab === 'monitoring_guru' && (
-                    <TeacherMonitoringView 
-                        teachers={teachers}
-                        history={assessmentHistory}
-                        currentSemester={selectedSemester}
-                    />
-                )}
-
-                {activeTab === 'monitoring_tanggungan' && (
-                    <MonitoringView 
-                        type="tanggungan"
-                        students={allStudentsMapped}
-                        history={filteredHistory}
-                        currentSemester={selectedSemester}
-                        subjectName={selectedSubject}
-                        teacherName={currentTeacherSignature.name}
-                        teacherNip={currentTeacherSignature.nip}
-                        principalName={settings.principalName}
-                        principalNip={settings.principalNip}
-                        academicYear={settings.academicYear}
-                    />
-                )}
-
-                {activeTab === 'monitoring_remidi' && (
-                    <MonitoringView 
-                        type="remidi"
-                        students={allStudentsMapped}
-                        history={filteredHistory}
-                        currentSemester={selectedSemester}
-                        subjectName={selectedSubject}
-                        teacherName={currentTeacherSignature.name}
-                        teacherNip={currentTeacherSignature.nip}
-                        principalName={settings.principalName}
-                        principalNip={settings.principalNip}
-                        academicYear={settings.academicYear}
-                    />
-                )}
-
-                {activeTab === 'reset' && (
-                    <ResetDataView 
-                        availableClasses={availableClasses}
-                        currentSemester={selectedSemester}
-                        onResetClass={handleResetClassGrades}
-                    />
-                )}
-
-                {activeTab === 'settings' && userRole === 'admin' && (
-                    <div className="p-8 max-w-4xl mx-auto h-full overflow-y-auto custom-scrollbar">
-                        <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
-                            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                                <SlidersHorizontal className="text-blue-600" />
-                                Pengaturan Aplikasi
-                            </h2>
-                            
-                            <form onSubmit={handleUpdateSettings} className="space-y-8">
-                                {/* Academic & Semester */}
-                                <div>
-                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 border-b pb-2">Umum</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Tahun Ajaran</label>
-                                            <input 
-                                                type="text" 
-                                                value={settings.academicYear}
-                                                onChange={e => setSettings({...settings, academicYear: e.target.value})}
-                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Semester Aktif</label>
-                                            <select 
-                                                value={settings.activeSemester}
-                                                onChange={e => setSettings({...settings, activeSemester: e.target.value as SemesterKey})}
-                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
-                                            >
-                                                <option value="ganjil">Ganjil</option>
-                                                <option value="genap">Genap</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Personnel */}
-                                <div>
-                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 border-b pb-2">Data Pejabat Sekolah</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Kepala Sekolah</label>
-                                            <input 
-                                                type="text" 
-                                                value={settings.principalName}
-                                                onChange={e => setSettings({...settings, principalName: e.target.value})}
-                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">NIP Kepala Sekolah</label>
-                                            <input 
-                                                type="text" 
-                                                value={settings.principalNip}
-                                                onChange={e => setSettings({...settings, principalNip: e.target.value})}
-                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Guru PAI (Default)</label>
-                                            <input 
-                                                type="text" 
-                                                value={settings.teacherName}
-                                                onChange={e => setSettings({...settings, teacherName: e.target.value})}
-                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">NIP Guru PAI</label>
-                                            <input 
-                                                type="text" 
-                                                value={settings.teacherNip}
-                                                onChange={e => setSettings({...settings, teacherNip: e.target.value})}
-                                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Security */}
-                                <div>
-                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 border-b pb-2">Keamanan</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Password Admin</label>
-                                            <div className="relative">
-                                                <input 
-                                                    type="text" 
-                                                    value={settings.adminPassword}
-                                                    onChange={e => setSettings({...settings, adminPassword: e.target.value})}
-                                                    className="w-full px-4 py-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
-                                                />
-                                                <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Password Default Guru</label>
-                                            <div className="relative">
-                                                <input 
-                                                    type="text" 
-                                                    value={settings.teacherDefaultPassword}
-                                                    onChange={e => setSettings({...settings, teacherDefaultPassword: e.target.value})}
-                                                    className="w-full px-4 py-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
-                                                />
-                                                <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="pt-6 flex justify-end border-t border-gray-100">
-                                    <button type="submit" className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-lg active:scale-95">
-                                        <Save size={18} /> Simpan Pengaturan
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )}
-            </div>
+                 {!isSidebarCollapsed && (
+                     <div className="overflow-hidden">
+                        <p className="text-sm font-bold text-white truncate">{userRole === 'admin' ? 'Administrator' : currentTeacher?.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{userRole === 'admin' ? 'Full Access' : 'Guru Mapel'}</p>
+                     </div>
+                 )}
+                 {!isSidebarCollapsed && (
+                    <button onClick={handleLogout} className="ml-auto text-gray-500 hover:text-white transition-colors">
+                        <LogOut size={16} />
+                    </button>
+                 )}
+             </div>
         </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 bg-[#f5f5f7] relative">
+         {/* Render Active View */}
+         {renderContent()}
       </div>
 
       {/* Modals */}
       <AddStudentModal 
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleSaveStudent}
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onSave={handleSaveStudent} 
         initialData={editingStudent}
         existingClasses={availableClasses}
       />
 
-      <InputGradeModal 
-         isOpen={isInputModalOpen}
-         onClose={() => { setIsInputModalOpen(false); setEditingSession(null); }}
-         onSaveSession={handleSaveSession}
-         currentSemester={selectedSemester}
-         targetClass={selectedClass}
-         initialData={editingSession}
-         history={classHistory}
+      <InputGradeModal
+        isOpen={isInputModalOpen}
+        onClose={() => {
+            setIsInputModalOpen(false);
+            setEditingSession(null);
+        }}
+        onSaveSession={handleSaveSession}
+        currentSemester={selectedSemester}
+        targetClass={selectedClass}
+        initialData={editingSession}
+        history={classHistory}
       />
-
-      <ChapterConfigModal
+      
+      {/* Chapter Config Modal */}
+      <ChapterConfigModal 
         isOpen={isChapterConfigModalOpen}
         onClose={() => setIsChapterConfigModalOpen(false)}
         subjectName={selectedSubject}
@@ -1242,6 +1213,16 @@ function App() {
         initialConfig={currentVisibleChapters}
         onSave={handleSaveChapterConfig}
       />
+      
+      {/* Global Loading Overlay */}
+      {isLoading && (
+          <div className="fixed inset-0 z-[60] bg-white/80 backdrop-blur-sm flex items-center justify-center">
+               <div className="flex flex-col items-center">
+                    <Loader2 size={40} className="text-blue-600 animate-spin mb-4" />
+                    <p className="text-gray-600 font-medium">Memuat data...</p>
+               </div>
+          </div>
+      )}
 
     </div>
   );

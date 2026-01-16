@@ -66,6 +66,23 @@ const GradeTable: React.FC<GradeTableProps> = ({
       });
   };
 
+  // Helper to determine input color class based on value
+  const getScoreInputClass = (val: number | null) => {
+    const baseClass = "w-full text-center py-1.5 text-sm font-medium focus:outline-none rounded transition-all placeholder-gray-300";
+    
+    if (val === null) {
+        return `${baseClass} bg-white text-gray-800 focus:bg-blue-50`;
+    }
+    if (val >= 85) {
+        return `${baseClass} bg-green-100 text-green-800 focus:bg-green-200 font-semibold`;
+    }
+    if (val >= 70) {
+        return `${baseClass} bg-yellow-100 text-yellow-800 focus:bg-yellow-200 font-semibold`;
+    }
+    // 0 - 69
+    return `${baseClass} bg-red-100 text-red-800 focus:bg-red-200 font-semibold`;
+  };
+
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement>, 
     studentId: number, 
@@ -290,7 +307,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
                                                           type="number" 
                                                           value={val ?? ''}
                                                           onChange={(e) => handleInputChange(e, student.id, chap.key, f)}
-                                                          className="w-full text-center py-1.5 text-sm font-medium focus:bg-blue-50 focus:outline-none rounded transition-all placeholder-gray-200 text-gray-800"
+                                                          className={getScoreInputClass(val)}
                                                           placeholder="-"
                                                        />
                                                    ) : (
@@ -314,7 +331,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
                                         type="number" 
                                         value={semesterData.kts ?? ''}
                                         onChange={(e) => handleInputChange(e, student.id, 'kts', null)}
-                                        className="w-full text-center py-1.5 text-sm font-medium focus:bg-purple-50 focus:outline-none rounded transition-all placeholder-gray-200 text-gray-800"
+                                        className={getScoreInputClass(semesterData.kts)}
                                         placeholder="-"
                                     />
                                 ) : (
@@ -327,7 +344,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
                                         type="number" 
                                         value={semesterData.sas ?? ''}
                                         onChange={(e) => handleInputChange(e, student.id, 'sas', null)}
-                                        className="w-full text-center py-1.5 text-sm font-medium focus:bg-purple-50 focus:outline-none rounded transition-all placeholder-gray-200 text-gray-800"
+                                        className={getScoreInputClass(semesterData.sas)}
                                         placeholder="-"
                                     />
                                 ) : (
