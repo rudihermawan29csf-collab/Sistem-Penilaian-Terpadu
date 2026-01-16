@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { initialStudents, initialTeachers } from './data';
 import { Student, ChapterKey, FormativeKey, ChapterGrades, SemesterKey, SemesterData, GradingSession, AppSettings, Teacher } from './types';
@@ -15,7 +14,7 @@ import TeacherMonitoringView from './components/TeacherMonitoringView';
 import ResetDataView from './components/ResetDataView';
 import TeacherDataView from './components/TeacherDataView'; 
 import ChapterConfigModal from './components/ChapterConfigModal';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as api from './services/api'; // Import API service
@@ -41,6 +40,9 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInputModalOpen, setIsInputModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Edit Student State
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
   // Chapter Configuration State
   const [subjectChapterConfigs, setSubjectChapterConfigs] = useState<Record<string, Record<ChapterKey, boolean>>>({});
@@ -359,33 +361,44 @@ function App() {
       h.semester !== selectedSemester ||
       (h.targetSubject !== selectedSubject && !(selectedSubject === 'Pendidikan Agama Islam' && !h.targetSubject))
     ));
-    // In a real app, you'd likely want to delete these from DB individually or have a batch delete endpoint
-    // For now, we assume this is a client-side cleanup visual, or you iterate and delete.
-    // Ideally create api.resetHistory(class, semester, subject)
   };
 
-  const handleAddStudent = (name: string) => {
-    const newId = Date.now();
-    const newNo = students.length + 1;
-    
-    const newStudent: Student = {
-      id: newId,
-      no: newNo,
-      nis: newId.toString().slice(-4),
-      name,
-      kelas: selectedClass,
-      gender: 'L', 
-      grades: {
-        ganjil: createEmptySemesterData(),
-        genap: createEmptySemesterData(),
+  // --- STUDENT MANAGEMENT HANDLERS ---
+  const handleSaveStudent = (student: Student) => {
+      if (editingStudent) {
+          // Update Mode
+          setStudents(prev => prev.map(s => s.id === student.id ? student : s));
+          api.updateStudent(student);
+      } else {
+          // Add Mode
+          setStudents(prev => [...prev, student]);
+          api.addStudent(student);
       }
-    };
-    setStudents([...students, newStudent]);
-    api.addStudent(newStudent);
+      setEditingStudent(null);
   };
 
+  const handleDeleteStudent = (id: number) => {
+      setStudents(prev => prev.filter(s => s.id !== id));
+      api.deleteStudent(id);
+  };
+
+  const handleImportStudents = (newStudents: Student[]) => {
+      setStudents(prev => [...prev, ...newStudents]);
+      api.importStudents(newStudents);
+  };
+
+  const handleEditStudentClick = (student: Student) => {
+      setEditingStudent(student);
+      setIsModalOpen(true);
+  };
+
+  const handleAddStudentClick = () => {
+      setEditingStudent(null);
+      setIsModalOpen(true);
+  };
+
+  // --- TEACHER & SETTINGS HANDLERS ---
   const handleSaveTeacher = (teacher: Teacher) => {
-      // Optimistic update for UI
       if (teachers.find(t => t.id === teacher.id)) {
           setTeachers(prev => prev.map(t => t.id === teacher.id ? teacher : t));
       } else {
@@ -395,8 +408,10 @@ function App() {
   }
 
   const handleDeleteTeacher = (id: number) => {
-      setTeachers(prev => prev.filter(t => t.id !== id));
-      api.deleteTeacher(id);
+      if(window.confirm('Yakin ingin menghapus data guru ini?')) {
+          setTeachers(prev => prev.filter(t => t.id !== id));
+          api.deleteTeacher(id);
+      }
   }
 
   const handleSaveSettings = (newSettings: AppSettings) => {
@@ -461,13 +476,14 @@ function App() {
     setActiveTab('grades');
   };
 
-  // --- DOWNLOAD HANDLERS (Keep existing logic) ---
-  const handleDownloadPDF = () => { /* ... existing code ... */ 
-      const doc = new jsPDF({ orientation: "landscape" });
+  // --- DOWNLOAD HANDLERS (UPDATED) ---
+  const handleDownloadPDF = () => {
+      // Landscape orientation with A4 size
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
       const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
       
-      // Header
+      // Title Header
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
       doc.text("LAPORAN NILAI SISWA", 148, 15, { align: "center" });
@@ -478,86 +494,129 @@ function App() {
       doc.text(`Semester: ${selectedSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 35);
       doc.text(`Tahun Ajaran: ${settings.academicYear}`, 14, 40);
 
-      // Prepare Table Columns
-      const tableHead = [
-        "No", "NIS", "Nama Siswa",
-        ...visibleKeys.map(k => {
-            const num = k.replace('bab', '');
-            const label = selectedSemester === 'genap' ? parseInt(num) + 5 : num;
-            return `Bab ${label} (Avg)`;
-        }),
-        "KTS", "SAS", "Nilai Akhir"
+      // --- Table Headers ---
+      // Row 1: Groupings
+      const headRow1: any[] = [
+        { content: 'No', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+        { content: 'NIS', rowSpan: 2, styles: { valign: 'middle', halign: 'center' } },
+        { content: 'Nama Siswa', rowSpan: 2, styles: { valign: 'middle', halign: 'left' } },
       ];
 
-      const tableBody = filteredStudents.map((s, idx) => {
+      // Add Chapter headers (spanning 7 columns each)
+      visibleKeys.forEach(k => {
+          const num = k.replace('bab', '');
+          const label = selectedSemester === 'genap' ? parseInt(num) + 5 : num;
+          headRow1.push({ content: `Bab ${label}`, colSpan: 7, styles: { halign: 'center', valign: 'middle' } });
+      });
+      // Add Evaluation header (spanning 3 columns)
+      headRow1.push({ content: 'Evaluasi Akhir', colSpan: 3, styles: { halign: 'center', valign: 'middle' } });
+
+      // Row 2: Detailed Columns
+      const headRow2: any[] = [];
+      // Calculate active fields map locally or use existing activeFieldsMap props logic
+      // We'll trust the semesterData structure since we want to print ALL columns F1-F5 regardless of active status?
+      // Requirement: "bab 1 lengkap mulai f1 sampai rata-rata"
+      
+      visibleKeys.forEach(() => {
+          ['F1', 'F2', 'F3', 'F4', 'F5', 'S', 'R'].forEach(h => {
+             headRow2.push({ content: h, styles: { halign: 'center', cellWidth: 'auto' } }); 
+          });
+      });
+      ['KTS', 'SAS', 'NA'].forEach(h => {
+          headRow2.push({ content: h, styles: { halign: 'center' } });
+      });
+
+      // --- Table Body ---
+      const body = filteredStudents.map((s, idx) => {
           const semesterData = s.grades[selectedSemester];
           const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, currentVisibleChapters);
 
-          const row = [
+          const row: any[] = [
               idx + 1,
               s.nis,
               s.name,
-              ...visibleKeys.map(k => {
-                  const avg = calculateChapterAverage(semesterData[k], activeFieldsMap[k]);
-                  return avg !== null ? avg : '-';
-              }),
-              semesterData.kts !== null ? semesterData.kts : '-',
-              semesterData.sas !== null ? semesterData.sas : '-',
-              finalGrade !== null ? finalGrade : '-'
           ];
+
+          visibleKeys.forEach(k => {
+              const grade = semesterData[k];
+              const avg = calculateChapterAverage(grade, activeFieldsMap[k]);
+              row.push(
+                  formatNumber(grade.f1) || '-',
+                  formatNumber(grade.f2) || '-',
+                  formatNumber(grade.f3) || '-',
+                  formatNumber(grade.f4) || '-',
+                  formatNumber(grade.f5) || '-',
+                  formatNumber(grade.sum) || '-', // S (Sumatif)
+                  avg !== null ? avg : '-' // R (Rerata)
+              );
+          });
+
+          row.push(
+              formatNumber(semesterData.kts) || '-',
+              formatNumber(semesterData.sas) || '-',
+              finalGrade !== null ? finalGrade : '-'
+          );
+          
           return row;
       });
 
       autoTable(doc, {
           startY: 45,
-          head: [tableHead],
-          body: tableBody,
+          head: [headRow1, headRow2],
+          body: body,
           theme: 'grid',
-          headStyles: { fillColor: [66, 133, 244], textColor: 255, fontSize: 8 },
-          bodyStyles: { fontSize: 8 },
-          styles: { halign: 'center' },
-          columnStyles: { 2: { halign: 'left' } }, // Name left aligned
-          margin: { top: 45, left: 14, right: 14 }
+          styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' }, // Smaller font for many columns
+          headStyles: { fillColor: [66, 133, 244], textColor: 255, fontSize: 7, fontStyle: 'bold', lineWidth: 0.1 },
+          columnStyles: {
+             0: { cellWidth: 8 }, // No
+             1: { cellWidth: 15 }, // NIS
+             2: { cellWidth: 35 }, // Nama
+             // Remaining columns auto-sized
+          },
+          margin: { top: 45, left: 10, right: 10 }
       });
 
-      // Signatures
+      // --- Signatures ---
       const finalY = (doc as any).lastAutoTable.finalY + 15;
       
-      // Check if new page needed
       if (finalY > 170) {
           doc.addPage();
       }
 
       const signatureY = finalY > 170 ? 20 : finalY; 
       
-      // Date
+      // Date (Right Side)
       const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       doc.setFontSize(10);
-      doc.text(`Mojokerto, ${today}`, 280, signatureY, { align: "right" });
-
-      // Titles
-      doc.text("Mengetahui,", 14, signatureY + 5);
-      doc.text("Kepala Sekolah", 14, signatureY + 10);
+      doc.setFont("helvetica", "normal");
       
-      doc.text("Guru Mata Pelajaran", 280, signatureY + 10, { align: "right" });
+      // Left Block (Principal) - Centered at x=50
+      const leftBlockX = 50;
+      doc.text("Mengetahui,", leftBlockX, signatureY, { align: "center" });
+      doc.text("Kepala Sekolah", leftBlockX, signatureY + 5, { align: "center" });
+
+      // Right Block (Teacher) - Centered at x=240
+      const rightBlockX = 240;
+      doc.text(`Mojokerto, ${today}`, rightBlockX, signatureY, { align: "center" });
+      doc.text("Guru Mata Pelajaran", rightBlockX, signatureY + 5, { align: "center" });
 
       // Space for signature
       const nameY = signatureY + 35;
 
       // Names
       doc.setFont("helvetica", "bold");
-      doc.text(settings.principalName, 14, nameY);
-      doc.text(currentTeacherSignature.name, 280, nameY, { align: "right" });
+      doc.text(settings.principalName, leftBlockX, nameY, { align: "center" });
+      doc.text(currentTeacherSignature.name, rightBlockX, nameY, { align: "center" });
 
       // NIPs
       doc.setFont("helvetica", "normal");
-      doc.text(`NIP. ${settings.principalNip}`, 14, nameY + 5);
-      doc.text(`NIP. ${currentTeacherSignature.nip}`, 280, nameY + 5, { align: "right" });
+      doc.text(`NIP. ${settings.principalNip}`, leftBlockX, nameY + 5, { align: "center" });
+      doc.text(`NIP. ${currentTeacherSignature.nip}`, rightBlockX, nameY + 5, { align: "center" });
 
       doc.save(`Nilai_${selectedSubject}_${selectedClass}_${selectedSemester}.pdf`);
   };
 
-  const handleDownloadExcel = () => { /* ... existing code ... */
+  const handleDownloadExcel = () => {
     const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
     // Filter visible chapters
     const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
@@ -643,7 +702,6 @@ function App() {
   }
 
   // --- RENDER MAIN APP ---
-  // (Rendering logic identical to before, just using state variables that are now API-backed)
   return (
     <div className="h-screen w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-gray-100 font-sans">
       <div className="w-full h-full max-w-[95vw] bg-white rounded-xl shadow-2xl flex border border-gray-200/60 ring-1 ring-black/5 overflow-hidden">
@@ -671,7 +729,7 @@ function App() {
             </button>
           </div>
 
-          <div className="p-3 space-y-1 overflow-y-auto custom-scrollbar">
+          <div className="p-3 space-y-1 overflow-y-auto custom-scrollbar flex-1 flex flex-col">
              {/* MENU GROUPS */}
              <div className="mb-4">
                 <p className={`px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ${isSidebarCollapsed ? 'text-center' : ''}`}>
@@ -731,386 +789,185 @@ function App() {
                         : 'text-gray-600 hover:bg-gray-200/60'
                     } ${isSidebarCollapsed ? 'justify-center' : ''}`}
                     >
-                        <CheckCircle size={18} />
-                        {!isSidebarCollapsed && <span>Progress Guru</span>}
+                        <BarChart2 size={18} />
+                        {!isSidebarCollapsed && <span>Monitoring Guru</span>}
                     </button>
                 )}
 
-                <button
-                onClick={() => setActiveTab('tanggungan')}
-                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'tanggungan' 
-                    ? 'bg-red-500 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200/60'
-                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                >
-                    <AlertCircle size={18} className={activeTab === 'tanggungan' ? 'text-white' : 'text-red-500'} />
-                    {!isSidebarCollapsed && <span>Tanggungan</span>}
-                </button>
-                <button
-                onClick={() => setActiveTab('remidi')}
-                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'remidi' 
-                    ? 'bg-orange-500 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200/60'
-                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                >
-                    <RefreshCw size={18} className={activeTab === 'remidi' ? 'text-white' : 'text-orange-500'} />
-                    {!isSidebarCollapsed && <span>Remidi</span>}
-                </button>
-            </div>
-
-            {userRole === 'admin' && (
-                <div>
-                    <p className={`px-3 text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ${isSidebarCollapsed ? 'text-center' : ''}`}>
-                    {isSidebarCollapsed ? 'Sys' : 'Sistem'}
-                    </p>
+                 {userRole === 'admin' && (
                     <button
                     onClick={() => setActiveTab('reset')}
                     className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                         activeTab === 'reset' 
-                        ? 'bg-red-600 text-white shadow-sm' 
+                        ? 'bg-red-500 text-white shadow-sm' 
                         : 'text-gray-600 hover:bg-gray-200/60'
                     } ${isSidebarCollapsed ? 'justify-center' : ''}`}
                     >
-                    <Trash2 size={18} />
-                    {!isSidebarCollapsed && <span>Reset Data</span>}
+                        <AlertTriangle size={18} />
+                        {!isSidebarCollapsed && <span>Reset Data</span>}
                     </button>
-                    <button
-                    onClick={() => setActiveTab('settings')}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        activeTab === 'settings' 
-                        ? 'bg-blue-500 text-white shadow-sm' 
-                        : 'text-gray-600 hover:bg-gray-200/60'
-                    } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                    >
-                    <Settings size={18} />
-                    {!isSidebarCollapsed && <span>Pengaturan</span>}
-                    </button>
-                </div>
-            )}
-          </div>
-
-          <div className="mt-auto p-4 border-t border-gray-300/50">
-             <div className="flex items-center space-x-2 text-gray-500 mb-3 justify-center">
-                 <div className="text-xs font-bold text-gray-600 truncate">
-                    {userRole === 'teacher' ? currentTeacher?.name : 'Administrator'}
-                 </div>
+                )}
              </div>
-             <button 
-                onClick={handleLogout}
-                className={`w-full flex items-center space-x-2 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium ${isSidebarCollapsed ? 'justify-center' : 'justify-center'}`}
-             >
-                <LogOut size={14} />
-                {!isSidebarCollapsed && <span>Keluar</span>}
-             </button>
+
+             {/* Footer Group */}
+             <div className="mt-auto border-t border-gray-200 pt-3">
+                 <button
+                    onClick={() => setIsChapterConfigModalOpen(true)}
+                     className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-200/60 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                 >
+                     <Settings size={18} />
+                     {!isSidebarCollapsed && <span>Konfigurasi Bab</span>}
+                 </button>
+                 <button
+                    onClick={handleLogout}
+                     className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                 >
+                     <LogOut size={18} />
+                     {!isSidebarCollapsed && <span>Keluar</span>}
+                 </button>
+             </div>
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white">
-          
-          {/* Top Toolbar - Mobile Responsive Fix */}
-          <div className="h-16 flex items-center justify-between px-6 bg-[#f5f5f7] border-b border-gray-300 shrink-0 overflow-x-auto hide-scrollbar">
-             <div className="flex items-center space-x-4 min-w-max">
-                
-                {/* Admin Teacher Selection */}
-                {userRole === 'admin' && activeTab === 'grades' && (
+        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+            {/* Header */}
+            <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200 bg-white shrink-0">
+               <div>
+                  <h2 className="text-xl font-bold text-gray-800">
+                      {activeTab === 'grades' && 'Input Nilai Siswa'}
+                      {activeTab === 'students' && 'Data Siswa'}
+                      {activeTab === 'teachers' && 'Data Guru'}
+                      {activeTab === 'monitoring_guru' && 'Monitoring Guru'}
+                      {activeTab === 'reset' && 'Reset Data'}
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                      {activeTab === 'grades' && `Kelas ${selectedClass} • ${selectedSubject}`}
+                      {activeTab === 'students' && 'Manajemen Data Siswa'}
+                      {activeTab === 'teachers' && 'Manajemen Data Guru'}
+                  </p>
+               </div>
+               
+               {activeTab === 'grades' && (
+                 <div className="flex items-center space-x-3">
                     <div className="relative">
                         <select
-                        value={adminSelectedTeacherName}
-                        onChange={(e) => setAdminSelectedTeacherName(e.target.value)}
-                        className="appearance-none bg-white border border-gray-300 text-gray-700 py-1.5 pl-4 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold min-w-[200px]"
+                            value={selectedSubject}
+                            onChange={(e) => setSelectedSubject(e.target.value)}
+                            className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8"
                         >
-                        {Array.from(new Set(teachers.map(t => t.name))).map(name => (
-                            <option key={name} value={name}>{name}</option>
-                        ))}
+                            {availableSubjects.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
-                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                           <ChevronDown size={14} />
-                        </div>
                     </div>
-                )}
-
-                {/* Subject Selector */}
-                {(activeTab === 'grades' || activeTab === 'tanggungan' || activeTab === 'remidi') && (
-                     <div className="relative">
+                    <div className="relative">
                         <select
-                        value={selectedSubject}
-                        onChange={(e) => setSelectedSubject(e.target.value)}
-                        className="appearance-none bg-blue-50 border border-blue-200 text-blue-900 py-1.5 pl-4 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+                            value={selectedClass}
+                            onChange={(e) => setSelectedClass(e.target.value)}
+                            className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8"
                         >
-                        {availableSubjects.map(sub => (
-                            <option key={sub} value={sub}>{sub}</option>
-                        ))}
+                            {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-blue-500">
-                           <ChevronDown size={14} />
-                        </div>
                     </div>
-                )}
-
-                {/* Class Selector */}
-                {(activeTab === 'grades' || activeTab === 'tanggungan' || activeTab === 'remidi') && (
-                     <div className="relative">
-                        <select
-                        value={selectedClass}
-                        onChange={(e) => setSelectedClass(e.target.value)}
-                        className="appearance-none bg-white border border-gray-300 text-gray-700 py-1.5 pl-4 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                        >
-                        {availableClasses.length > 0 ? (
-                            availableClasses.map(cls => (
-                                <option key={cls} value={cls}>{cls}</option>
-                            ))
-                        ) : (
-                            <option value="">Tidak ada kelas</option>
-                        )}
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                           <ChevronDown size={14} />
-                        </div>
-                    </div>
-                )}
-
-                 {/* Semester Selector */}
-                 {(activeTab === 'grades' || activeTab === 'monitoring_guru') && (
-                     <div className="relative">
-                        <select
-                        value={selectedSemester}
-                        onChange={(e) => setSelectedSemester(e.target.value as SemesterKey)}
-                        className="appearance-none bg-white border border-gray-300 text-gray-700 py-1.5 pl-4 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-                        >
-                        <option value="ganjil">Sem. Ganjil</option>
-                        <option value="genap">Sem. Genap</option>
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                           <ChevronDown size={14} />
-                        </div>
-                    </div>
-                 )}
-             </div>
-
-             <div className="flex items-center space-x-3 min-w-max ml-4">
-                {/* Teacher Config Button */}
-                {activeTab === 'grades' && userRole === 'teacher' && (
-                    <button 
-                        onClick={() => setIsChapterConfigModalOpen(true)}
-                        className="flex items-center space-x-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 border border-transparent rounded-md text-gray-700 active:scale-95 transition-all"
-                        title="Konfigurasi Bab"
-                    >
-                        <Settings size={16} />
-                        <span className="text-xs font-medium hidden lg:inline">Konfigurasi Bab</span>
+                    
+                    <button onClick={handleDownloadPDF} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200" title="Download PDF">
+                        <FileText size={18} />
                     </button>
-                )}
+                    <button onClick={handleDownloadExcel} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200" title="Download Excel">
+                        <FileSpreadsheet size={18} />
+                    </button>
+                 </div>
+               )}
+            </div>
 
-                {activeTab === 'grades' && userRole === 'teacher' && (
-                  <button 
-                    onClick={() => {
-                      setEditingSession(null);
-                      setIsInputModalOpen(true);
-                    }}
-                    className="flex items-center space-x-2 px-3 py-1.5 bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 text-white active:scale-95 transition-all"
-                  >
-                    <Unlock size={16} />
-                    <span className="text-xs font-medium">Buka Input</span>
-                  </button>
-                )}
-                
+            {/* Content Body */}
+            <div className="flex-1 overflow-hidden relative">
                 {activeTab === 'grades' && (
-                    <>
-                        <button 
-                        className="flex items-center space-x-2 px-3 py-1.5 bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 text-white active:scale-95 transition-all"
-                        onClick={handleDownloadPDF}
-                        >
-                        <FileText size={16} />
-                        <span className="text-xs font-medium">PDF</span>
-                        </button>
-
-                        <button 
-                        className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 border border-transparent rounded-md shadow-sm hover:bg-green-700 text-white active:scale-95 transition-all"
-                        onClick={handleDownloadExcel}
-                        >
-                        <FileSpreadsheet size={16} />
-                        <span className="text-xs font-medium">Excel</span>
-                        </button>
-                    </>
-                )}
-             </div>
-          </div>
-
-          {/* Content View */}
-          <div className="flex-1 flex flex-col min-h-0 bg-white overflow-auto">
-            {activeTab === 'grades' && (
-              <>
-                <GradeTable 
-                  students={filteredStudents} 
-                  selectedSemester={selectedSemester}
-                  activeFieldsMap={activeFieldsMap}
-                  visibleChapters={currentVisibleChapters} // Pass active configuration
-                  assessmentHistory={classHistory}
-                  academicYear={settings.academicYear}
-                  onUpdateScore={handleUpdateScore} 
-                  isEditable={userRole === 'teacher'} 
-                />
-                
-                {/* Only Show history controls if NOT admin */}
-                {userRole === 'teacher' ? (
-                     <AssessmentHistory 
-                        history={classHistory} 
-                        currentSemester={selectedSemester}
-                        onEdit={handleEditSession}
-                        onDelete={handleDeleteSession}
-                        onResetHistory={handleResetHistory}
-                    />
-                ) : (
-                    <div className="p-4 text-center text-gray-400 text-sm bg-gray-50 border-t">
-                        Mode Admin: Hanya dapat melihat nilai. Login sebagai Guru untuk mengedit.
+                    <div className="h-full flex flex-col">
+                        <GradeTable 
+                            students={filteredStudents}
+                            selectedSemester={selectedSemester}
+                            activeFieldsMap={activeFieldsMap}
+                            visibleChapters={currentVisibleChapters}
+                            assessmentHistory={classHistory}
+                            academicYear={settings.academicYear}
+                            onUpdateScore={handleUpdateScore}
+                            isEditable={true} 
+                        />
+                        <AssessmentHistory 
+                           history={classHistory}
+                           currentSemester={selectedSemester}
+                           onEdit={handleEditSession}
+                           onDelete={handleDeleteSession}
+                           onResetHistory={handleResetHistory}
+                        />
+                        <div className="absolute bottom-6 right-6 z-30">
+                            <button
+                                onClick={() => setIsInputModalOpen(true)}
+                                className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-full shadow-lg transition-transform hover:scale-105 font-medium"
+                            >
+                                <Plus size={20} />
+                                <span>Buka Input Nilai</span>
+                            </button>
+                        </div>
                     </div>
                 )}
-               
-              </>
-            )}
-            
-            {activeTab === 'students' && userRole === 'admin' && (
-                <StudentDataTable students={filteredStudents} />
-            )}
 
-            {activeTab === 'teachers' && userRole === 'admin' && (
-                <TeacherDataView teachers={teachers} setTeachers={handleSaveTeacher} />
-            )}
+                {activeTab === 'students' && (
+                    <StudentDataTable 
+                        students={allStudentsMapped}
+                        onAdd={handleAddStudentClick}
+                        onEdit={handleEditStudentClick}
+                        onDelete={handleDeleteStudent}
+                        onImport={handleImportStudents}
+                    />
+                )}
 
-            {activeTab === 'monitoring_guru' && userRole === 'admin' && (
-                <TeacherMonitoringView 
-                    teachers={teachers} 
-                    history={assessmentHistory} 
-                    currentSemester={selectedSemester} 
-                />
-            )}
+                {activeTab === 'teachers' && (
+                    <TeacherDataView 
+                        teachers={teachers}
+                        setTeachers={handleSaveTeacher}
+                    />
+                )}
 
-            {activeTab === 'tanggungan' && (
-                <MonitoringView 
-                  type="tanggungan" 
-                  students={filteredStudents} 
-                  history={filteredHistory} 
-                  currentSemester={selectedSemester} 
-                  subjectName={selectedSubject}
-                  teacherName={currentTeacherSignature.name}
-                  teacherNip={currentTeacherSignature.nip}
-                  principalName={settings.principalName}
-                  principalNip={settings.principalNip}
-                />
-            )}
+                {activeTab === 'monitoring_guru' && (
+                    <TeacherMonitoringView 
+                        teachers={teachers}
+                        history={assessmentHistory}
+                        currentSemester={selectedSemester}
+                    />
+                )}
 
-            {activeTab === 'remidi' && (
-                <MonitoringView 
-                  type="remidi" 
-                  students={filteredStudents} 
-                  history={filteredHistory}
-                  currentSemester={selectedSemester} 
-                  subjectName={selectedSubject}
-                  teacherName={currentTeacherSignature.name}
-                  teacherNip={currentTeacherSignature.nip}
-                  principalName={settings.principalName}
-                  principalNip={settings.principalNip}
-                />
-            )}
-
-            {activeTab === 'reset' && userRole === 'admin' && (
-                <ResetDataView 
-                  availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} 
-                  currentSemester={selectedSemester}
-                  onResetClass={handleResetClassGrades}
-                />
-            )}
-
-            {activeTab === 'settings' && userRole === 'admin' && (
-               <div className="p-8 max-w-4xl mx-auto">
-               <h2 className="text-2xl font-bold text-gray-800 mb-6">Pengaturan Aplikasi</h2>
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                   <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
-                       <div>
-                           <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Keamanan</h3>
-                           <div className="space-y-4">
-                               <div>
-                                   <label className="block text-sm font-medium text-gray-700">Password Admin</label>
-                                   <input 
-                                   type="text" 
-                                   value={settings.adminPassword}
-                                   onChange={(e) => handleSaveSettings({...settings, adminPassword: e.target.value})}
-                                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono mt-1"
-                                   />
-                               </div>
-                               <div>
-                                   <label className="block text-sm font-medium text-gray-700">Password Default Guru</label>
-                                   <input 
-                                   type="text" 
-                                   value={settings.teacherDefaultPassword}
-                                   onChange={(e) => handleSaveSettings({...settings, teacherDefaultPassword: e.target.value})}
-                                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono mt-1"
-                                   />
-                               </div>
-                           </div>
-                       </div>
-                   </div>
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                       <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Tahun Pelajaran</h3>
-                       <div className="space-y-4">
-                           <div>
-                           <label className="block text-sm font-medium text-gray-700 mb-1">Tahun Pelajaran</label>
-                           <input 
-                               type="text" 
-                               value={settings.academicYear}
-                               onChange={(e) => handleSaveSettings({...settings, academicYear: e.target.value})}
-                               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
-                           />
-                           </div>
-                           <div>
-                           <label className="block text-sm font-medium text-gray-700 mb-1">Kepala Sekolah</label>
-                           <input 
-                               type="text" 
-                               value={settings.principalName}
-                               onChange={(e) => handleSaveSettings({...settings, principalName: e.target.value})}
-                               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm mt-1 mb-2"
-                               placeholder="Nama"
-                           />
-                            <input 
-                               type="text" 
-                               value={settings.principalNip}
-                               onChange={(e) => handleSaveSettings({...settings, principalNip: e.target.value})}
-                               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
-                               placeholder="NIP"
-                           />
-                           </div>
-                       </div>
-                   </div>
-               </div>
-               </div>
-            )}
-          </div>
+                {activeTab === 'reset' && (
+                    <ResetDataView 
+                        availableClasses={availableClasses}
+                        currentSemester={selectedSemester}
+                        onResetClass={handleResetClassGrades}
+                    />
+                )}
+            </div>
         </div>
       </div>
 
+      {/* Modals */}
       <AddStudentModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onAdd={handleAddStudent}
-        nextNumber={students.filter(s => s.kelas === selectedClass).length + 1}
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveStudent}
+        initialData={editingStudent}
+        existingClasses={availableClasses}
       />
 
-      <InputGradeModal
-        isOpen={isInputModalOpen}
-        onClose={() => {
-          setIsInputModalOpen(false);
-          setEditingSession(null);
-        }}
-        onSaveSession={handleSaveSession}
-        currentSemester={selectedSemester}
-        targetClass={selectedClass} 
-        initialData={editingSession}
-        history={classHistory}
+      <InputGradeModal 
+         isOpen={isInputModalOpen}
+         onClose={() => { setIsInputModalOpen(false); setEditingSession(null); }}
+         onSaveSession={handleSaveSession}
+         currentSemester={selectedSemester}
+         targetClass={selectedClass}
+         initialData={editingSession}
+         history={classHistory}
       />
 
-      <ChapterConfigModal 
+      <ChapterConfigModal
         isOpen={isChapterConfigModalOpen}
         onClose={() => setIsChapterConfigModalOpen(false)}
         subjectName={selectedSubject}
@@ -1118,6 +975,7 @@ function App() {
         initialConfig={currentVisibleChapters}
         onSave={handleSaveChapterConfig}
       />
+
     </div>
   );
 }

@@ -49,6 +49,24 @@ export const addStudent = async (student: Student) => {
     await postData({ action: 'addStudent', student: studentData });
 };
 
+export const updateStudent = async (student: Student) => {
+    const { grades, gradesBySubject, ...studentData } = student;
+    await postData({ action: 'updateStudent', student: studentData });
+};
+
+export const deleteStudent = async (id: number) => {
+    await postData({ action: 'deleteStudent', id });
+};
+
+export const importStudents = async (students: Student[]) => {
+     // Prepare data without heavy grade objects to save bandwidth, backend should initialize grades
+    const studentsData = students.map(s => {
+        const { grades, gradesBySubject, ...rest } = s;
+        return rest;
+    });
+    await postData({ action: 'importStudents', students: studentsData });
+};
+
 export const saveChapterConfig = async (subject: string, config: any) => {
     await postData({ action: 'saveChapterConfig', subject, config });
 };

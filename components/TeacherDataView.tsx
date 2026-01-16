@@ -5,13 +5,8 @@ import { Plus, Edit2, Trash2, Check, X, Save, User } from 'lucide-react';
 
 interface TeacherDataViewProps {
   teachers: Teacher[];
-  // Changed setTeachers to be a function that saves/updates a single teacher, or accepts full array
-  // To keep it simple based on App.tsx changes, assume it receives a handler function
   setTeachers: (teacher: Teacher) => void; 
 }
-
-// NOTE: We need to adapt the component slightly or change the prop name to reflect intent (saveTeacher)
-// But to minimize friction, let's treat `setTeachers` as the update handler for now.
 
 const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -28,7 +23,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
   const classColumns = ['VII A', 'VII B', 'VII C', 'VIII A', 'VIII B', 'VIII C', 'IX A', 'IX B', 'IX C'];
 
   const handleEdit = (teacher: Teacher) => {
-    setEditingTeacher(teacher);
+    setEditingTeacher(teacher); 
     setFormData({
       name: teacher.name,
       nip: teacher.nip,
@@ -39,11 +34,6 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
   };
 
   const handleDelete = (id: number) => {
-    // Ideally this component should emit a delete event, but since we only passed setTeachers (save), 
-    // we might need a separate prop for delete. 
-    // However, App.tsx logic for `handleSaveTeacher` handles add/update. 
-    // For delete, we will just alert the user for now that they need to contact admin or add handleDelete prop in future.
-    // actually let's implement the delete properly in App.tsx and pass it down.
     alert("Hubungi administrator untuk menghapus guru.");
   };
 
@@ -53,19 +43,28 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
     let teacherToSave: Teacher;
 
     if (editingTeacher) {
+      // STRICT UPDATE: Use the ID from the specific row being edited to ensure only this row updates
       teacherToSave = {
-        ...editingTeacher,
-        ...formData
+        ...editingTeacher, // Preserves ID and No
+        name: formData.name,
+        nip: formData.nip,
+        subject: formData.subject,
+        classes: formData.classes
       };
     } else {
+      // NEW ENTRY: Generate a truly unique ID
       teacherToSave = {
-        id: Date.now(),
+        id: Date.now() + Math.floor(Math.random() * 10000),
         no: teachers.length + 1,
-        ...formData
+        name: formData.name,
+        nip: formData.nip,
+        subject: formData.subject,
+        classes: formData.classes
       };
     }
     
-    setTeachers(teacherToSave); // Call the prop which is wired to handleSaveTeacher in App.tsx
+    // Pass the single teacher object to the handler (App.tsx should handle the array update by ID)
+    setTeachers(teacherToSave); 
     
     setIsModalOpen(false);
     setEditingTeacher(null);
@@ -105,37 +104,38 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
         </button>
       </div>
 
-      {/* Table Container */}
-      <div className="flex-1 overflow-auto custom-scrollbar p-6">
-        <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-          <table className="w-full border-collapse">
+      {/* Table Container - Added overflow-x-auto for horizontal scrolling */}
+      <div className="flex-1 overflow-x-auto custom-scrollbar p-6">
+        <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm inline-block min-w-full align-middle">
+          {/* Added min-w-max to force table width to accommodate all columns */}
+          <table className="min-w-max w-full border-collapse">
             <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold tracking-wider">
               <tr>
-                <th className="p-3 border-r border-gray-200 text-center w-12 sticky left-0 bg-gray-50 z-10">No</th>
-                <th className="p-3 border-r border-gray-200 text-left min-w-[200px] sticky left-12 bg-gray-50 z-10">Nama Guru</th>
-                <th className="p-3 border-r border-gray-200 text-left min-w-[150px]">NIP</th>
-                <th className="p-3 border-r border-gray-200 text-left min-w-[180px]">Mata Pelajaran</th>
+                <th className="p-3 border-r border-gray-200 text-center w-12 sticky left-0 bg-gray-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
+                <th className="p-3 border-r border-gray-200 text-left min-w-[200px] sticky left-12 bg-gray-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Guru</th>
+                <th className="p-3 border-r border-gray-200 text-left min-w-[150px] whitespace-nowrap">NIP</th>
+                <th className="p-3 border-r border-gray-200 text-left min-w-[200px] whitespace-nowrap">Mata Pelajaran</th>
                 {classColumns.map(cls => (
                   <th key={cls} className="p-2 border-r border-gray-200 text-center w-12 min-w-[3rem] text-[10px]">
                     {cls}
                   </th>
                 ))}
-                <th className="p-3 text-center min-w-[100px]">Aksi</th>
+                <th className="p-3 text-center min-w-[100px] sticky right-0 bg-gray-50 z-20 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
               {teachers.map((teacher, index) => (
                 <tr key={teacher.id} className="hover:bg-blue-50/30 transition-colors group text-sm">
-                  <td className="p-3 text-center text-gray-500 border-r border-gray-100 sticky left-0 bg-white group-hover:bg-blue-50/30">
+                  <td className="p-3 text-center text-gray-500 border-r border-gray-100 sticky left-0 bg-white group-hover:bg-blue-50/30 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                     {index + 1}
                   </td>
-                  <td className="p-3 text-gray-800 font-medium border-r border-gray-100 sticky left-12 bg-white group-hover:bg-blue-50/30">
+                  <td className="p-3 text-gray-800 font-medium border-r border-gray-100 sticky left-12 bg-white group-hover:bg-blue-50/30 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] whitespace-nowrap">
                     {teacher.name}
                   </td>
-                  <td className="p-3 text-gray-600 font-mono text-xs border-r border-gray-100">
+                  <td className="p-3 text-gray-600 font-mono text-xs border-r border-gray-100 whitespace-nowrap">
                     {teacher.nip || '-'}
                   </td>
-                  <td className="p-3 text-gray-700 border-r border-gray-100">
+                  <td className="p-3 text-gray-700 border-r border-gray-100 whitespace-nowrap">
                     {teacher.subject}
                   </td>
                   {classColumns.map(cls => (
@@ -147,7 +147,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
                       )}
                     </td>
                   ))}
-                  <td className="p-3 text-center">
+                  <td className="p-3 text-center sticky right-0 bg-white group-hover:bg-blue-50/30 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                     <div className="flex items-center justify-center gap-2">
                       <button 
                         onClick={() => handleEdit(teacher)}
