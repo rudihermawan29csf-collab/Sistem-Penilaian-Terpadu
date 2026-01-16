@@ -94,6 +94,20 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
     return session.type.toUpperCase();
   };
 
+  // Helper to determine color based on class name
+  const getClassColor = (className: string) => {
+      const cls = className.toUpperCase();
+      if (cls.includes('VIII')) {
+         return [249, 168, 37]; // Yellow/Orange (readable) for Grade 8
+      } else if (cls.includes('VII')) {
+         return [46, 125, 50]; // Green for Grade 7
+      } else if (cls.includes('IX')) {
+         return [211, 47, 47]; // Red for Grade 9
+      }
+      // Fallback
+      return type === 'tanggungan' ? [220, 38, 38] : [234, 88, 12];
+  };
+
   const handleDownloadPDF = () => {
     const doc = new jsPDF();
 
@@ -111,6 +125,9 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
         doc.setFont("helvetica", "bold");
         doc.text(`Kelas: ${className}`, 14, yPos);
         yPos += 5;
+
+        // Determine color for this class
+        const headerColor = getClassColor(className);
 
         // Iterate tasks in this class
         Object.values(groupedData[className]).forEach(({ session, items }) => {
@@ -130,7 +147,7 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
                 body: tableBody,
                 theme: 'grid',
                 headStyles: { 
-                    fillColor: type === 'tanggungan' ? [220, 38, 38] : [234, 88, 12],
+                    fillColor: headerColor,
                     textColor: 255 
                 },
                 margin: { left: 14, right: 14 },

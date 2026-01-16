@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { initialStudents, initialTeachers } from './data';
 import { Student, ChapterKey, FormativeKey, ChapterGrades, SemesterKey, SemesterData, GradingSession, AppSettings, Teacher } from './types';
@@ -20,7 +21,7 @@ import autoTable from 'jspdf-autotable';
 import * as api from './services/api'; // Import API service
 
 type UserRole = 'admin' | 'teacher' | 'student' | null;
-type ActiveTab = 'grades' | 'students' | 'teachers' | 'settings' | 'tanggungan' | 'remidi' | 'reset' | 'monitoring_guru';
+type ActiveTab = 'grades' | 'students' | 'teachers' | 'settings' | 'tanggungan' | 'remidi' | 'reset' | 'monitoring_guru' | 'monitoring_tanggungan' | 'monitoring_remidi';
 
 function App() {
   // Loading State
@@ -477,12 +478,29 @@ function App() {
   };
 
   // --- DOWNLOAD HANDLERS (UPDATED) ---
+  
+  // Helper to determine color based on class name
+  const getClassHeaderColor = (className: string) => {
+      const cls = className.toUpperCase();
+      if (cls.includes('VIII')) {
+         return [249, 168, 37]; // Yellow/Orange (readable) for Grade 8. Check VIII first!
+      } else if (cls.includes('VII')) {
+         return [46, 125, 50]; // Green for Grade 7
+      } else if (cls.includes('IX')) {
+         return [211, 47, 47]; // Red for Grade 9
+      }
+      return [66, 133, 244]; // Default Blue
+  };
+
   const handleDownloadPDF = () => {
       // Landscape orientation with A4 size
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
       const visibleKeys = chapters.filter(k => currentVisibleChapters[k]);
       
+      // Determine header color based on selected class
+      const headerColor = getClassHeaderColor(selectedClass);
+
       // Title Header
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
@@ -513,9 +531,6 @@ function App() {
 
       // Row 2: Detailed Columns
       const headRow2: any[] = [];
-      // Calculate active fields map locally or use existing activeFieldsMap props logic
-      // We'll trust the semesterData structure since we want to print ALL columns F1-F5 regardless of active status?
-      // Requirement: "bab 1 lengkap mulai f1 sampai rata-rata"
       
       visibleKeys.forEach(() => {
           ['F1', 'F2', 'F3', 'F4', 'F5', 'S', 'R'].forEach(h => {
@@ -565,13 +580,18 @@ function App() {
           head: [headRow1, headRow2],
           body: body,
           theme: 'grid',
-          styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' }, // Smaller font for many columns
-          headStyles: { fillColor: [66, 133, 244], textColor: 255, fontSize: 7, fontStyle: 'bold', lineWidth: 0.1 },
+          styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' }, 
+          headStyles: { 
+              fillColor: headerColor, // Dynamic Color
+              textColor: 255, 
+              fontSize: 7, 
+              fontStyle: 'bold', 
+              lineWidth: 0.1 
+          },
           columnStyles: {
              0: { cellWidth: 8 }, // No
              1: { cellWidth: 15 }, // NIS
              2: { cellWidth: 35 }, // Nama
-             // Remaining columns auto-sized
           },
           margin: { top: 45, left: 10, right: 10 }
       });
@@ -679,7 +699,7 @@ function App() {
   if (!userRole) {
     return <LoginPage 
       students={students} 
-      teachers={teachers}
+      teachers={teachers} 
       onLogin={handleLogin} 
       adminPasswordSettings={settings.adminPassword || 'admin123'}
       teacherPasswordSettings={settings.teacherDefaultPassword || 'guru123'}
@@ -780,6 +800,31 @@ function App() {
                   {isSidebarCollapsed ? 'Mon' : 'Monitoring'}
                 </p>
                 
+                {/* Available for BOTH Admin and Teacher */}
+                <button
+                onClick={() => setActiveTab('monitoring_tanggungan')}
+                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeTab === 'monitoring_tanggungan' 
+                    ? 'bg-red-500 text-white shadow-sm' 
+                    : 'text-gray-600 hover:bg-gray-200/60'
+                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                >
+                    <AlertCircle size={18} />
+                    {!isSidebarCollapsed && <span>Tanggungan</span>}
+                </button>
+
+                <button
+                onClick={() => setActiveTab('monitoring_remidi')}
+                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeTab === 'monitoring_remidi' 
+                    ? 'bg-orange-500 text-white shadow-sm' 
+                    : 'text-gray-600 hover:bg-gray-200/60'
+                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                >
+                    <RefreshCw size={18} />
+                    {!isSidebarCollapsed && <span>Remidi</span>}
+                </button>
+                
                 {userRole === 'admin' && (
                     <button
                     onClick={() => setActiveTab('monitoring_guru')}
@@ -840,11 +885,15 @@ function App() {
                       {activeTab === 'teachers' && 'Data Guru'}
                       {activeTab === 'monitoring_guru' && 'Monitoring Guru'}
                       {activeTab === 'reset' && 'Reset Data'}
+                      {activeTab === 'monitoring_tanggungan' && 'Monitoring Tanggungan'}
+                      {activeTab === 'monitoring_remidi' && 'Monitoring Remidi'}
                   </h2>
                   <p className="text-xs text-gray-500">
                       {activeTab === 'grades' && `Kelas ${selectedClass} • ${selectedSubject}`}
                       {activeTab === 'students' && 'Manajemen Data Siswa'}
                       {activeTab === 'teachers' && 'Manajemen Data Guru'}
+                      {activeTab === 'monitoring_tanggungan' && 'Daftar Siswa Tanggungan (Nilai 0)'}
+                      {activeTab === 'monitoring_remidi' && 'Daftar Siswa Remidi (Nilai < 70)'}
                   </p>
                </div>
                
@@ -869,11 +918,13 @@ function App() {
                         </select>
                     </div>
                     
-                    <button onClick={handleDownloadPDF} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200" title="Download PDF">
+                    <button onClick={handleDownloadPDF} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200 flex items-center gap-1.5 transition-colors shadow-sm" title="Download PDF">
                         <FileText size={18} />
+                        <span className="text-xs font-bold">PDF</span>
                     </button>
-                    <button onClick={handleDownloadExcel} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200" title="Download Excel">
+                    <button onClick={handleDownloadExcel} className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg border border-green-200 flex items-center gap-1.5 transition-colors shadow-sm" title="Download Excel">
                         <FileSpreadsheet size={18} />
+                        <span className="text-xs font-bold">Excel</span>
                     </button>
                  </div>
                )}
@@ -934,6 +985,34 @@ function App() {
                         teachers={teachers}
                         history={assessmentHistory}
                         currentSemester={selectedSemester}
+                    />
+                )}
+
+                {activeTab === 'monitoring_tanggungan' && (
+                    <MonitoringView 
+                        type="tanggungan"
+                        students={allStudentsMapped}
+                        history={filteredHistory}
+                        currentSemester={selectedSemester}
+                        subjectName={selectedSubject}
+                        teacherName={currentTeacherSignature.name}
+                        teacherNip={currentTeacherSignature.nip}
+                        principalName={settings.principalName}
+                        principalNip={settings.principalNip}
+                    />
+                )}
+
+                {activeTab === 'monitoring_remidi' && (
+                    <MonitoringView 
+                        type="remidi"
+                        students={allStudentsMapped}
+                        history={filteredHistory}
+                        currentSemester={selectedSemester}
+                        subjectName={selectedSubject}
+                        teacherName={currentTeacherSignature.name}
+                        teacherNip={currentTeacherSignature.nip}
+                        principalName={settings.principalName}
+                        principalNip={settings.principalNip}
                     />
                 )}
 

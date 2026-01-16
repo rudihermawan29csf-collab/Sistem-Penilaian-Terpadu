@@ -38,20 +38,34 @@ const GradeTable: React.FC<GradeTableProps> = ({
   const chapters = allChapters.filter(c => visibleChapters[c.key]);
 
   // Determine display fields: 
-  // If students exist, use activeFieldsMap (dynamic).
-  // If NO students, force default fields so headers appear (User Request: "tetap tampilakan bab dan jenis nilai").
+  // Modified Logic: If activeFieldsMap returns empty for a chapter (no grades yet), 
+  // force display of ALL fields (F1-F5, Sum) so headers appear correctly.
   const displayFieldsMap = useMemo(() => {
+    // Default full structure
+    const fullStructure: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
+    const defaults: Record<ChapterKey, FormativeKey[]> = {
+      bab1: fullStructure,
+      bab2: fullStructure,
+      bab3: fullStructure,
+      bab4: fullStructure,
+      bab5: fullStructure,
+    };
+
     if (students.length === 0) {
-      const defaults: Record<ChapterKey, FormativeKey[]> = {
-        bab1: ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'],
-        bab2: ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'],
-        bab3: ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'],
-        bab4: ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'],
-        bab5: ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'],
-      };
       return defaults;
     }
-    return activeFieldsMap;
+
+    // Clone activeFieldsMap to avoid mutation
+    const processedMap: Record<ChapterKey, FormativeKey[]> = { ...activeFieldsMap };
+
+    // Check each chapter. If empty, fallback to full structure.
+    (Object.keys(processedMap) as ChapterKey[]).forEach(key => {
+        if (!processedMap[key] || processedMap[key].length === 0) {
+            processedMap[key] = fullStructure;
+        }
+    });
+
+    return processedMap;
   }, [students.length, activeFieldsMap]);
 
   // Helper to check if a specific cell is "active" (part of history) for editing context
@@ -100,8 +114,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
               
               {chapters.map(chap => {
                  const fields = displayFieldsMap[chap.key] || [];
-                 // Even if no fields (rare), show header if chapter visible, but colspan 1 at least
-                 const colSpan = Math.max(1, fields.length + 1); 
+                 const colSpan = Math.max(1, fields.length + 1); // +1 for Average
                  
                  return (
                     <th key={chap.key} colSpan={colSpan} className="p-2 border-b border-r border-gray-300 bg-blue-50 text-xs font-bold text-blue-700 uppercase text-center">
