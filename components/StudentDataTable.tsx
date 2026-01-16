@@ -21,7 +21,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
   onImport 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClassFilter, setSelectedClassFilter] = useState(''); // New State for Class Filter
+  const [selectedClassFilter, setSelectedClassFilter] = useState(''); // Filter Class State
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get unique classes for filter dropdown
@@ -81,7 +81,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
             const wsname = wb.SheetNames[0];
             const ws = wb.Sheets[wsname];
             
-            // Convert to JSON with raw values to handle types better
+            // Convert to JSON
             const data = XLSX.utils.sheet_to_json(ws);
 
             if (!data || data.length === 0) {
@@ -89,34 +89,38 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                  return;
             }
 
-            let successCount = 0;
             const parsedStudents: Student[] = [];
+            let skippedCount = 0;
 
             // Process each row
             data.forEach((row: any, index) => {
-                // Flexible Column Matching
-                const nisRaw = row['NIS'] || row['nis'];
-                const namaRaw = row['Nama'] || row['nama'] || row['Nama Siswa'];
+                // Flexible Column Matching (Handle Case Sensitivity)
+                const nisRaw = row['NIS'] || row['nis'] || row['Nis'];
+                const namaRaw = row['Nama'] || row['nama'] || row['Nama Siswa'] || row['nama siswa'];
                 const kelasRaw = row['Kelas'] || row['kelas'];
                 const genderRaw = row['Gender'] || row['gender'] || row['Jenis Kelamin'] || row['L/P'];
 
                 // Validate Essential Data
-                if (!namaRaw || !kelasRaw) return; // Skip if no name or class
+                if (!namaRaw || !kelasRaw) {
+                    skippedCount++;
+                    return; 
+                }
 
                 // Normalize Data
-                const nisStr = nisRaw ? String(nisRaw).trim() : `TEMP-${Date.now()}-${index}`; // Fallback ID if NIS missing
-                const nameStr = String(namaRaw).trim().replace(/['"]/g, '');
+                // Force NIS to string to prevent scientific notation issues
+                const nisStr = nisRaw ? String(nisRaw).trim() : `TEMP-${Date.now()}-${index}`;
+                const nameStr = String(namaRaw).trim().replace(/['"]/g, ''); // Remove quotes that might break JSON
                 const kelasStr = String(kelasRaw).trim().toUpperCase();
                 
                 // Gender Normalization
                 let genderChar: 'L' | 'P' = 'L';
                 if (genderRaw) {
                     const g = String(genderRaw).trim().toUpperCase();
-                    if (g === 'P' || g === 'PEREMPUAN' || g === 'WANITA') genderChar = 'P';
+                    if (g.startsWith('P') || g === 'WANITA') genderChar = 'P';
                 }
 
                 parsedStudents.push({
-                    id: Date.now() + index + Math.random(),
+                    id: Date.now() + index + Math.random(), // Unique ID
                     no: index + 1,
                     nis: nisStr,
                     name: nameStr,
@@ -128,22 +132,21 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     },
                     gradesBySubject: {}
                 });
-                successCount++;
             });
 
             if (parsedStudents.length > 0) {
-                const confirmMsg = `Ditemukan ${parsedStudents.length} data siswa valid.\n\nKlik OK untuk memproses import.`;
+                const confirmMsg = `Ditemukan ${parsedStudents.length} data siswa valid.\n(Dilewati: ${skippedCount} baris kosong/rusak)\n\nKlik OK untuk import ke database.`;
                 if(window.confirm(confirmMsg)) {
                     onImport(parsedStudents);
-                    alert(`BERHASIL: ${parsedStudents.length} data siswa telah ditambahkan.`);
+                    alert(`BERHASIL: ${parsedStudents.length} data siswa sedang dikirim ke server.`);
                 }
             } else {
-                alert('GAGAL: Tidak ada data valid yang ditemukan. Pastikan kolom header Excel adalah: "NIS", "Nama", "Kelas", "Gender".');
+                alert('GAGAL: Tidak ada data valid ditemukan. Pastikan header kolom Excel adalah: "NIS", "Nama", "Kelas", "Gender".');
             }
 
         } catch (error) {
             console.error("Import Error:", error);
-            alert("ERROR: Terjadi kesalahan saat membaca file. Pastikan file Excel tidak rusak.");
+            alert("ERROR: File Excel rusak atau tidak valid.");
         }
     };
 
@@ -153,7 +156,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
 
     reader.readAsArrayBuffer(file);
     
-    // Reset input so same file can be selected again if needed
+    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
