@@ -9,8 +9,9 @@ interface InputGradeModalProps {
   onSaveSession: (session: GradingSession) => void;
   currentSemester: SemesterKey;
   targetClass: string;
+  subjectName: string; // Added subjectName
   initialData?: GradingSession | null;
-  history?: GradingSession[]; // Added history prop
+  history?: GradingSession[];
 }
 
 const InputGradeModal: React.FC<InputGradeModalProps> = ({ 
@@ -19,6 +20,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
   onSaveSession, 
   currentSemester,
   targetClass,
+  subjectName,
   initialData,
   history = [] 
 }) => {
@@ -48,13 +50,13 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
         h.semester === currentSemester && 
         h.type === 'bab' && 
         h.chapterKey === chapter &&
-        // If we are editing, allow the current field to be shown
+        (h.targetSubject === subjectName || (!h.targetSubject && subjectName === 'Pendidikan Agama Islam')) && // Check subject match
         (!initialData || h.id !== initialData.id)
       )
       .map(h => h.formativeKey);
 
     return allFields.filter(f => !usedFields.includes(f.value));
-  }, [history, targetClass, currentSemester, type, chapter, initialData]);
+  }, [history, targetClass, currentSemester, type, chapter, initialData, subjectName]);
 
   // Effect to reset field if the selected field becomes unavailable (e.g. when changing chapter)
   useEffect(() => {
@@ -79,7 +81,6 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
       setDate(new Date().toISOString().split('T')[0]);
       setType('bab');
       setChapter('bab1');
-      // Field will be set by the other effect based on availability
       setDescription('');
     }
   }, [isOpen, initialData]);
@@ -96,7 +97,8 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
     onSaveSession({
       id: initialData ? initialData.id : Date.now().toString(),
       semester: currentSemester,
-      targetClass: targetClass, // Save the class context
+      targetClass: targetClass,
+      targetSubject: subjectName, // Save current subject context
       date,
       type,
       chapterKey: type === 'bab' ? chapter : undefined,
@@ -124,7 +126,10 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
             <h3 className="text-lg font-semibold text-gray-900">
               {initialData ? 'Edit Riwayat Penilaian' : 'Buka Input Nilai Baru'}
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">Untuk Kelas: <span className="font-bold text-blue-600">{targetClass}</span></p>
+            <p className="text-xs text-gray-500 mt-0.5">
+                Kelas: <span className="font-bold text-blue-600">{targetClass}</span> • 
+                Mapel: <span className="font-bold text-blue-600">{subjectName}</span>
+            </p>
           </div>
           <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200 transition-colors text-gray-500">
             <X size={20} />

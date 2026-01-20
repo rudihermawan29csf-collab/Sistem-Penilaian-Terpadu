@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, SemesterKey, ChapterKey, GradingSession, FormativeKey, AppSettings, Teacher, SemesterData } from '../types';
 import { getActiveFields, calculateChapterAverage, calculateFinalGrade, createEmptySemesterData } from '../utils';
-import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList } from 'lucide-react';
+import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList, TrendingUp, Eye } from 'lucide-react';
 import MidSemesterReportView from './MidSemesterReportView';
 
 interface StudentDashboardProps {
@@ -24,7 +24,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     onLogout,
     subjectChapterConfigs = {} 
 }) => {
-  const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi' | 'rapor_sisipan'>('detail');
+  // Set default tab to 'summary' (Rekap Nilai)
+  const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi' | 'rapor_sisipan'>('summary');
   const [selectedSemester, setSelectedSemester] = useState<SemesterKey>(settings.activeSemester);
   
   // Clock State
@@ -105,6 +106,11 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   };
 
   // --- RENDERERS ---
+
+  const handleViewDetail = (subject: string) => {
+    setSelectedSubject(subject);
+    setActiveTab('detail');
+  };
 
   // RENDER: DETAIL VIEW (Existing)
   const renderDetailView = () => {
@@ -276,20 +282,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       );
   };
 
-  // RENDER: SUMMARY VIEW
+  // RENDER: SUMMARY VIEW (Simplified List)
   const renderSummaryView = () => {
-     const summaryData = availableSubjects.map(sub => {
-         const grades = getGradesForSubject(sub);
-         const activeFieldsMap = getActiveFieldsForSubject(sub);
-         const visibleChapters = subjectChapterConfigs[sub] || settings.visibleChapters;
-         const finalGrade = calculateFinalGrade(grades, activeFieldsMap, visibleChapters);
-         return {
-             subject: sub,
-             teacher: subjectTeacherMap[sub] || '-',
-             finalGrade
-         };
-     });
-
      return (
         <div className="animate-scale-in">
              <div className="relative mb-6">
@@ -305,39 +299,64 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase">
+                <table className="w-full text-left border-collapse">
+                    <thead className="bg-[#f9f9fb] text-xs uppercase text-gray-500 font-bold">
                         <tr>
-                            <th className="px-5 py-4">Mata Pelajaran</th>
-                            <th className="px-5 py-4">Nilai Akhir</th>
-                            <th className="px-5 py-4 text-center">Status</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-16 text-center">No</th>
+                            <th className="px-6 py-4 border-b border-gray-200">Mata Pelajaran</th>
+                            <th className="px-6 py-4 border-b border-gray-200 text-center w-32">Nilai Akhir</th>
+                            <th className="px-6 py-4 border-b border-gray-200 text-center w-32">Status</th>
+                            <th className="px-6 py-4 border-b border-gray-200 text-center w-32">Aksi</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {summaryData.map((data, idx) => (
-                            <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-5 py-4">
-                                    <div className="font-semibold text-gray-900 text-sm">{data.subject}</div>
-                                    <div className="text-xs text-gray-500 mt-0.5">{data.teacher}</div>
-                                </td>
-                                <td className="px-5 py-4">
-                                    <span className={`text-base font-bold ${data.finalGrade !== null && data.finalGrade < 75 ? 'text-red-600' : 'text-gray-900'}`}>
-                                        {data.finalGrade !== null ? data.finalGrade : '-'}
-                                    </span>
-                                </td>
-                                <td className="px-5 py-4 text-center">
-                                    {data.finalGrade !== null ? (
-                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                            data.finalGrade >= 75 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                                        }`}>
-                                            {data.finalGrade >= 75 ? 'Tuntas' : 'Belum'}
-                                        </span>
-                                    ) : (
-                                        <span className="text-xs text-gray-400">-</span>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
+                    <tbody className="divide-y divide-gray-100 text-sm">
+                        {availableSubjects.map((sub, idx) => {
+                            const grades = getGradesForSubject(sub);
+                            const activeFieldsMap = getActiveFieldsForSubject(sub);
+                            const visibleChapters = subjectChapterConfigs[sub] || settings.visibleChapters;
+                            const finalGrade = calculateFinalGrade(grades, activeFieldsMap, visibleChapters);
+                            const teacherName = subjectTeacherMap[sub] || '-';
+                            const isTuntas = finalGrade !== null && finalGrade >= 75;
+
+                            return (
+                                <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-4 text-center text-gray-500">{idx + 1}</td>
+                                    <td className="px-6 py-4">
+                                        <div className="font-bold text-gray-800">{sub}</div>
+                                        <div className="text-xs text-gray-500 mt-0.5">{teacherName}</div>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        {finalGrade !== null ? (
+                                            <span className={`font-bold text-base ${isTuntas ? 'text-blue-600' : 'text-red-600'}`}>
+                                                {finalGrade}
+                                            </span>
+                                        ) : (
+                                            <span className="text-gray-400">-</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        {finalGrade !== null ? (
+                                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                isTuntas ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                            }`}>
+                                                {isTuntas ? 'Tuntas' : 'Belum Tuntas'}
+                                            </span>
+                                        ) : (
+                                            <span className="text-gray-400 text-xs">-</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <button 
+                                            onClick={() => handleViewDetail(sub)}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 hover:border-blue-500 hover:text-blue-600 text-gray-600 rounded-lg text-xs font-medium transition-all shadow-sm active:scale-95"
+                                        >
+                                            <Eye size={14} />
+                                            Detail
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -504,7 +523,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                <h2 className="text-sm font-bold text-gray-900">{student.name}</h2>
                <p className="text-xs text-gray-500">{student.kelas} • NIS: {student.nis}</p>
             </div>
-            <button onClick={onLogout} className="flex items-center space-x-1 px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-xs font-medium text-gray-600">
+            <button onClick={onLogout} className="flex items-center space-x-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all text-xs font-bold shadow-md shadow-red-200 active:scale-95">
                <LogOut size={14} /><span>Keluar</span>
             </button>
          </div>
@@ -514,16 +533,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       <div className="max-w-3xl mx-auto w-full px-4 mt-4">
           <div className="flex p-1 bg-gray-200 rounded-xl overflow-x-auto">
               <button 
-                onClick={() => setActiveTab('detail')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'detail' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                  <LayoutDashboard size={14} /> Detail
-              </button>
-              <button 
                 onClick={() => setActiveTab('summary')}
                 className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'summary' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
-                  <FileText size={14} /> Rekap
+                  <TrendingUp size={14} /> Rekap Nilai
               </button>
               <button 
                 onClick={() => setActiveTab('tanggungan')}

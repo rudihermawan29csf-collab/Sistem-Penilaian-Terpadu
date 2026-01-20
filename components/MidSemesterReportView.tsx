@@ -175,8 +175,8 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
   };
 
   const calculateStudentIssues = (student: Student, targetClass: string) => {
-    const tanggungan: { subject: string, task: string, score: number }[] = [];
-    const remidi: { subject: string, task: string, score: number }[] = [];
+    const tanggungan: { subject: string, task: string, score: number, date: string, description: string }[] = [];
+    const remidi: { subject: string, task: string, score: number, date: string, description: string }[] = [];
 
     const classSubjects = new Set<string>();
     teachers.forEach(t => {
@@ -187,6 +187,18 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
     const sortedSubjects = Array.from(classSubjects)
         .filter(s => s !== 'Bimbingan Konseling') 
         .sort((a, b) => getSubjectSortIndex(a) - getSubjectSortIndex(b));
+
+    // Helper to find session details
+    const findSession = (subject: string, type: 'bab'|'kts'|'sas', chap?: ChapterKey, field?: FormativeKey) => {
+        return assessmentHistory.find(h => 
+            h.targetClass === targetClass && 
+            h.semester === settings.activeSemester &&
+            (h.targetSubject === subject || (!h.targetSubject && subject === 'Pendidikan Agama Islam')) &&
+            h.type === type &&
+            (chap ? h.chapterKey === chap : true) &&
+            (field ? h.formativeKey === field : true)
+        );
+    };
 
     sortedSubjects.forEach(subject => {
         let grades: SemesterData;
@@ -203,23 +215,55 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
              const chapGrades = grades[chap];
              fields.forEach(f => {
                  const score = chapGrades[f];
-                 if (score === 0) {
+                 
+                 // Check logic
+                 let issueType: 'tanggungan' | 'remidi' | null = null;
+                 if (score === 0) issueType = 'tanggungan';
+                 else if (score !== null && score < 70) issueType = 'remidi';
+
+                 if (issueType) {
                      const displayBab = parseInt(chap.replace('bab',''));
-                     const taskName = `TP ${displayBab} - ${f.toUpperCase()}`;
-                     tanggungan.push({ subject, task: taskName, score: 0 });
-                 } else if (score !== null && score < 70) {
-                     const displayBab = parseInt(chap.replace('bab',''));
-                     const taskName = `TP ${displayBab} - ${f.toUpperCase()}`;
-                     remidi.push({ subject, task: taskName, score });
+                     const taskName = `TP ${displayBab} - ${f === 'sum' ? 'SUM' : f.toUpperCase()}`;
+                     
+                     // Get Meta
+                     const session = findSession(subject, 'bab', chap, f);
+                     const date = session?.date || '-';
+                     const description = session?.description || '-';
+
+                     const item = { subject, task: taskName, score: score!, date, description };
+                     if (issueType === 'tanggungan') tanggungan.push(item);
+                     else remidi.push(item);
                  }
              });
         });
 
-        if (grades.kts === 0) tanggungan.push({ subject, task: 'KTS', score: 0 });
-        else if (grades.kts !== null && grades.kts < 70) remidi.push({ subject, task: 'KTS', score: grades.kts });
+        // KTS
+        if (grades.kts === 0 || (grades.kts !== null && grades.kts < 70)) {
+            const session = findSession(subject, 'kts');
+            const item = { 
+                subject, 
+                task: 'KTS', 
+                score: grades.kts!, 
+                date: session?.date || '-', 
+                description: session?.description || '-' 
+            };
+            if (grades.kts === 0) tanggungan.push(item);
+            else remidi.push(item);
+        }
 
-        if (grades.sas === 0) tanggungan.push({ subject, task: 'SAS', score: 0 });
-        else if (grades.sas !== null && grades.sas < 70) remidi.push({ subject, task: 'SAS', score: grades.sas });
+        // SAS
+        if (grades.sas === 0 || (grades.sas !== null && grades.sas < 70)) {
+            const session = findSession(subject, 'sas');
+            const item = { 
+                subject, 
+                task: 'SAS', 
+                score: grades.sas!, 
+                date: session?.date || '-', 
+                description: session?.description || '-' 
+            };
+            if (grades.sas === 0) tanggungan.push(item);
+            else remidi.push(item);
+        }
     });
 
     return { tanggungan, remidi };
@@ -234,7 +278,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
   const studentIssues = useMemo(() => {
       if (!selectedStudent || !selectedClass) return { tanggungan: [], remidi: [] };
       return calculateStudentIssues(selectedStudent, selectedClass);
-  }, [selectedStudent, selectedClass, teachers, settings.activeSemester]);
+  }, [selectedStudent, selectedClass, teachers, settings.activeSemester, assessmentHistory]);
 
 
   // --- PDF GENERATION LOGIC ---
@@ -554,31 +598,60 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
 
         doc.setFont("times", "bold");
         doc.text("I. Daftar Tanggungan (Nilai Kosong / 0)", 15, y);
-        const tanggunganBody = dataIssues.tanggungan.map((item, i) => [i+1, item.subject, item.task, '0']);
-        if (tanggunganBody.length === 0) tanggunganBody.push(['-', 'Tidak ada tanggungan', '-', '-']);
+        
+        // Expanded Table Data for PDF
+        const tanggunganBody = dataIssues.tanggungan.map((item, i) => [
+            i+1, 
+            item.subject,
+            item.date, 
+            item.task, 
+            item.description,
+            '0'
+        ]);
+        if (tanggunganBody.length === 0) tanggunganBody.push(['-', 'Tidak ada tanggungan', '-', '-', '-', '-']);
 
         autoTable(doc, {
             startY: y + 2,
-            head: [['No', 'Mata Pelajaran', 'Tagihan', 'Nilai']],
+            head: [['No', 'Mata Pelajaran', 'Tgl', 'Tagihan', 'Ket.', 'Nilai']],
             body: tanggunganBody,
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            styles: { font: "times", fontSize: 8, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
             headStyles: { fillColor: [255, 230, 230], textColor: [0, 0, 0] },
+            columnStyles: { 
+                0: { cellWidth: 8, halign: 'center' }, 
+                2: { cellWidth: 20 },
+                3: { cellWidth: 25 },
+                5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }
+            }
         });
         y = (doc as any).lastAutoTable.finalY + 10;
 
         doc.setFont("times", "bold");
         doc.text("II. Daftar Remidi (Nilai < 70)", 15, y);
-        const remidiBody = dataIssues.remidi.map((item, i) => [i+1, item.subject, item.task, item.score]);
-        if (remidiBody.length === 0) remidiBody.push(['-', 'Tidak ada remidi', '-', '-']);
+        
+        const remidiBody = dataIssues.remidi.map((item, i) => [
+            i+1, 
+            item.subject,
+            item.date,
+            item.task,
+            item.description,
+            item.score
+        ]);
+        if (remidiBody.length === 0) remidiBody.push(['-', 'Tidak ada remidi', '-', '-', '-', '-']);
 
         autoTable(doc, {
             startY: y + 2,
-            head: [['No', 'Mata Pelajaran', 'Tagihan', 'Nilai']],
+            head: [['No', 'Mata Pelajaran', 'Tgl', 'Tagihan', 'Ket.', 'Nilai']],
             body: remidiBody,
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            styles: { font: "times", fontSize: 8, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
             headStyles: { fillColor: [255, 240, 220], textColor: [0, 0, 0] },
+            columnStyles: { 
+                0: { cellWidth: 8, halign: 'center' }, 
+                2: { cellWidth: 20 },
+                3: { cellWidth: 25 },
+                5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }
+            }
         });
         y = (doc as any).lastAutoTable.finalY + 10;
         
@@ -1039,8 +1112,10 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                             <tr className="bg-red-50">
                                 <th className="border border-black p-1 w-8 text-center">No</th>
                                 <th className="border border-black p-1 text-left">Mata Pelajaran</th>
+                                <th className="border border-black p-1 text-left w-20">Tgl</th>
                                 <th className="border border-black p-1 text-left">Tagihan</th>
-                                <th className="border border-black p-1 w-16 text-center">Nilai</th>
+                                <th className="border border-black p-1 text-left w-32">Ket.</th>
+                                <th className="border border-black p-1 w-10 text-center">Nilai</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1048,13 +1123,15 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                                 studentIssues.tanggungan.map((item, idx) => (
                                     <tr key={idx}>
                                         <td className="border border-black p-1 text-center">{idx + 1}</td>
-                                        <td className="border border-black p-1">{item.subject}</td>
+                                        <td className="border border-black p-1 font-medium">{item.subject}</td>
+                                        <td className="border border-black p-1 text-[10px]">{item.date}</td>
                                         <td className="border border-black p-1">{item.task}</td>
+                                        <td className="border border-black p-1 text-[10px] italic">{item.description}</td>
                                         <td className="border border-black p-1 text-center font-bold text-red-600">0</td>
                                     </tr>
                                 ))
                             ) : (
-                                <tr><td className="border border-black p-1 text-center" colSpan={4}>Tidak ada tanggungan</td></tr>
+                                <tr><td className="border border-black p-1 text-center" colSpan={6}>Tidak ada tanggungan</td></tr>
                             )}
                         </tbody>
                     </table>
@@ -1067,8 +1144,10 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                             <tr className="bg-orange-50">
                                 <th className="border border-black p-1 w-8 text-center">No</th>
                                 <th className="border border-black p-1 text-left">Mata Pelajaran</th>
+                                <th className="border border-black p-1 text-left w-20">Tgl</th>
                                 <th className="border border-black p-1 text-left">Tagihan</th>
-                                <th className="border border-black p-1 w-16 text-center">Nilai</th>
+                                <th className="border border-black p-1 text-left w-32">Ket.</th>
+                                <th className="border border-black p-1 w-10 text-center">Nilai</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1076,13 +1155,15 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                                 studentIssues.remidi.map((item, idx) => (
                                     <tr key={idx}>
                                         <td className="border border-black p-1 text-center">{idx + 1}</td>
-                                        <td className="border border-black p-1">{item.subject}</td>
+                                        <td className="border border-black p-1 font-medium">{item.subject}</td>
+                                        <td className="border border-black p-1 text-[10px]">{item.date}</td>
                                         <td className="border border-black p-1">{item.task}</td>
+                                        <td className="border border-black p-1 text-[10px] italic">{item.description}</td>
                                         <td className="border border-black p-1 text-center font-bold text-orange-600">{item.score}</td>
                                     </tr>
                                 ))
                             ) : (
-                                <tr><td className="border border-black p-1 text-center" colSpan={4}>Tidak ada remidi</td></tr>
+                                <tr><td className="border border-black p-1 text-center" colSpan={6}>Tidak ada remidi</td></tr>
                             )}
                         </tbody>
                     </table>

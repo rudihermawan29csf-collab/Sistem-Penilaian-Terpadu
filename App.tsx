@@ -19,7 +19,7 @@ import MidSemesterReportView from './components/MidSemesterReportView';
 import WaliKelasView from './components/WaliKelasView';
 import ExtraActivityView from './components/ExtraActivityView';
 import ClassAttendanceView from './components/ClassAttendanceView';
-import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save, CloudDownload, Wifi, WifiOff, Database, Terminal, X, ClipboardList, Star, Layers, TableProperties, Briefcase, Award, Image } from 'lucide-react';
+import { Download, Search, BookOpen, Users, GraduationCap, ChevronDown, Settings, Unlock, SlidersHorizontal, LogOut, Lock, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen, Trash2, UserCheck, CheckCircle, FileSpreadsheet, FileText, Loader2, Plus, BarChart2, AlertTriangle, User, Calendar, Save, CloudDownload, Wifi, WifiOff, Database, Terminal, X, ClipboardList, Star, Layers, TableProperties, Briefcase, Award, Image, Zap } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -275,8 +275,18 @@ const App: React.FC = () => {
 
   const handleManualSave = async () => {
     setIsSaving(true);
-    setHasUnsavedChanges(false);
-    setIsSaving(false);
+    try {
+        // Save all student data including grades (batch update)
+        // This persists changes made in GradeTable (UP, KTS, SAS, Formatives)
+        await api.importStudents(students);
+        setHasUnsavedChanges(false);
+        alert('Semua perubahan data nilai berhasil disimpan ke server.');
+    } catch (error) {
+        console.error("Save failed:", error);
+        alert('Gagal menyimpan data. Periksa koneksi internet Anda.');
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const handleSaveDailyAttendance = (log: DailyAttendanceLog) => {
@@ -386,6 +396,66 @@ const App: React.FC = () => {
       await api.saveSettings({ ...settings, midSemesterFieldConfig: fieldConfig });
   };
 
+  const handleAutoGenerateUP = () => {
+      const upRanges = settings.upRanges;
+      if (!upRanges || upRanges.length === 0) {
+          alert("Range Nilai UP belum dikonfigurasi di Pengaturan.");
+          return;
+      }
+
+      const calculatedStudents = students.map(s => {
+          // Only process students in current class
+          if (s.kelas !== selectedClass) return { s, updated: false };
+
+          // Get semester data for current subject
+          let grades = s.grades[selectedSemester];
+          if (selectedSubject !== 'Pendidikan Agama Islam') {
+              grades = s.gradesBySubject?.[selectedSubject]?.[selectedSemester] || createEmptySemesterData();
+          }
+
+          // Calculate NA
+          const finalGrade = calculateFinalGrade(grades, activeFieldsMap, currentVisibleChapters);
+
+          if (finalGrade !== null) {
+              const range = upRanges.find(r => finalGrade >= r.min && finalGrade <= r.max);
+              if (range) {
+                  const newValue = range.value;
+                  if (grades.nilaiUp !== newValue) {
+                       // Clone student and grades
+                       const newS = { ...s };
+                       if (selectedSubject === 'Pendidikan Agama Islam') {
+                           newS.grades = { ...newS.grades, [selectedSemester]: { ...grades, nilaiUp: newValue } };
+                       } else {
+                           if (!newS.gradesBySubject) newS.gradesBySubject = {};
+                           if (!newS.gradesBySubject[selectedSubject]) {
+                               newS.gradesBySubject[selectedSubject] = {
+                                   ganjil: createEmptySemesterData(),
+                                   genap: createEmptySemesterData()
+                               };
+                           }
+                           newS.gradesBySubject[selectedSubject] = {
+                               ...newS.gradesBySubject[selectedSubject],
+                               [selectedSemester]: { ...grades, nilaiUp: newValue }
+                           };
+                       }
+                       return { s: newS, updated: true };
+                  }
+              }
+          }
+          return { s, updated: false };
+      });
+
+      const updatedCount = calculatedStudents.filter(x => x.updated).length;
+
+      if (updatedCount > 0) {
+          setStudents(calculatedStudents.map(x => x.s));
+          setHasUnsavedChanges(true);
+          alert(`Berhasil generate Nilai UP untuk ${updatedCount} siswa berdasarkan NA.`);
+      } else {
+          alert("Tidak ada data yang perlu diupdate (NA mungkin kosong atau nilai UP sudah sesuai).");
+      }
+  };
+
   // Student CRUD & Updates
   const handleAddStudentClick = () => { setEditingStudent(null); setIsModalOpen(true); };
   const handleEditStudentClick = (s: Student) => { setEditingStudent(s); setIsModalOpen(true); };
@@ -452,9 +522,11 @@ const App: React.FC = () => {
   }
 
   if (userRole === 'student' && editingStudent) {
+      // Ensure we pass the FRESH student object from the main students state to get updates
+      const freshStudent = students.find(s => s.id === editingStudent.id) || editingStudent;
       return (
           <StudentDashboard 
-            student={editingStudent} 
+            student={freshStudent} 
             allStudents={students} 
             assessmentHistory={assessmentHistory}
             settings={settings}
@@ -465,6 +537,9 @@ const App: React.FC = () => {
       );
   }
 
+  // --- Toolbar Logic Variables ---
+  const isNilaiUpTab = activeTab === 'nilai_up';
+  
   return (
     <div className="flex h-screen w-full bg-[#f5f5f7] font-sans text-gray-900 overflow-hidden">
       <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#1c1c1e] text-gray-300 flex flex-col transition-all duration-300 ease-in-out shrink-0 relative z-50 shadow-2xl print:hidden`}>
@@ -872,15 +947,43 @@ const App: React.FC = () => {
                                     <button onClick={() => setSelectedSemester('ganjil')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'ganjil' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Ganjil</button>
                                     <button onClick={() => setSelectedSemester('genap')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedSemester === 'genap' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Genap</button>
                                 </div>
-                                {userRole !== 'admin' && (<button onClick={() => setIsInputModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md active:scale-95 font-bold text-sm ml-2"><Unlock size={16} /><span>Buka Input Nilai</span></button>)}
+                                
+                                {/* Button: Buka Input Nilai - Hidden for Teachers in Nilai UP tab */}
+                                {userRole !== 'admin' && activeTab !== 'nilai_up' && (
+                                    <button onClick={() => setIsInputModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md active:scale-95 font-bold text-sm ml-2">
+                                        <Unlock size={16} /><span>Buka Input Nilai</span>
+                                    </button>
+                                )}
                             </div>
                             <div className="flex items-center gap-2">
                                 <button onClick={handleReloadData} className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-100" title="Reload Data dari Server"><RefreshCw size={20} className={isLoading ? "animate-spin" : ""} /></button>
-                                <button onClick={() => setIsChapterConfigModalOpen(true)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Konfigurasi TP"><SlidersHorizontal size={20} /></button>
+                                
+                                {/* Button: Konfigurasi TP - Hidden for Teachers in Nilai UP tab */}
+                                {activeTab !== 'nilai_up' && (
+                                    <button onClick={() => setIsChapterConfigModalOpen(true)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Konfigurasi TP">
+                                        <SlidersHorizontal size={20} />
+                                    </button>
+                                )}
+                                
                                 <div className="h-6 w-px bg-gray-300 mx-1"></div>
-                                <button onClick={handleDownloadExcel} className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg border border-green-100" title="Download Excel"><FileSpreadsheet size={20} /></button>
-                                <button onClick={handleDownloadPDF} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-100" title="Download PDF Laporan"><FileText size={20} /></button>
-                                <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                                
+                                {/* Buttons: Download - Hidden for Teachers in Nilai UP tab */}
+                                {activeTab !== 'nilai_up' && (
+                                    <>
+                                        <button onClick={handleDownloadExcel} className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg border border-green-100" title="Download Excel"><FileSpreadsheet size={20} /></button>
+                                        <button onClick={handleDownloadPDF} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-100" title="Download PDF Laporan"><FileText size={20} /></button>
+                                        <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                                    </>
+                                )}
+                                
+                                {/* Button: Generate Otomatis - Removed entirely for Teachers in Nilai UP per request */}
+                                {activeTab === 'nilai_up' && userRole === 'admin' && (
+                                    <button onClick={handleAutoGenerateUP} className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-sm bg-orange-500 hover:bg-orange-600 text-white active:scale-95" title="Generate Nilai UP otomatis dari NA sesuai range di pengaturan">
+                                        <Zap size={16} />
+                                        <span>Generate Otomatis</span>
+                                    </button>
+                                )}
+                                
                                 {userRole !== 'admin' && (<button onClick={handleManualSave} disabled={!hasUnsavedChanges || isSaving} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-sm ${hasUnsavedChanges ? 'bg-indigo-600 text-white hover:bg-indigo-700 animate-pulse-soft shadow-indigo-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>{isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}<span>Simpan</span></button>)}
                             </div>
                         </div>
@@ -905,6 +1008,7 @@ const App: React.FC = () => {
                             onUpdateScore={handleUpdateScore} 
                             isEditable={userRole !== 'admin'}
                             showUpColumn={activeTab === 'nilai_up'} 
+                            upRanges={settings.upRanges} // Pass settings for auto UP calculation
                         />
                         {classHistory.length > 0 && activeTab === 'grades' && (<div className="bg-gray-50 border-t border-gray-200"><AssessmentHistory history={classHistory} currentSemester={selectedSemester} onEdit={handleEditSession} onDelete={handleDeleteSession} onResetHistory={handleResetHistory} /></div>)}
                     </div>
@@ -945,6 +1049,7 @@ const App: React.FC = () => {
             } : handleSaveSession}
             currentSemester={selectedSemester}
             targetClass={selectedClass}
+            subjectName={selectedSubject} // Pass subject name
             initialData={editingSession}
             history={assessmentHistory}
         />

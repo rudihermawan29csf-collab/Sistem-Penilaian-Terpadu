@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession } from '../types';
+import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession, UpRange } from '../types';
 import { calculateChapterAverage, calculateFinalGrade, formatNumber } from '../utils';
 import { Info, X, Calendar, FileText, Tag, BookOpen, Star } from 'lucide-react';
 
@@ -15,6 +15,7 @@ interface GradeTableProps {
   onUpdateScore: (id: number, chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null, value: number | null) => void;
   isEditable: boolean;
   showUpColumn?: boolean; // If true, enables UP column AND triggers compact mode
+  upRanges?: UpRange[]; // Added to support auto calculation based on settings
 }
 
 const GradeTable: React.FC<GradeTableProps> = ({
@@ -27,7 +28,8 @@ const GradeTable: React.FC<GradeTableProps> = ({
   academicYear,
   onUpdateScore,
   isEditable,
-  showUpColumn = false
+  showUpColumn = false,
+  upRanges = []
 }) => {
   const [selectedSession, setSelectedSession] = useState<GradingSession | null>(null);
 
@@ -182,6 +184,17 @@ const GradeTable: React.FC<GradeTableProps> = ({
              {students.map((student, index) => {
                 const semesterData = student.grades[selectedSemester];
                 const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
+                
+                // Automatic UP Calculation for Display
+                let displayUp: number | null = semesterData.nilaiUp;
+                
+                if (showUpColumn && displayUp === null && finalGrade !== null && upRanges.length > 0) {
+                    const range = upRanges.find(r => finalGrade >= r.min && finalGrade <= r.max);
+                    if (range) {
+                        displayUp = range.value;
+                    }
+                }
+
                 return (
                     <tr key={student.id} className="hover:bg-blue-50/20 transition-colors group">
                        <td className="p-3 text-center text-sm text-gray-500 font-medium sticky left-0 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10">{index + 1}</td>
@@ -207,7 +220,6 @@ const GradeTable: React.FC<GradeTableProps> = ({
                        
                        {/* KTS & SAS */}
                        <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('kts', null) && !showUpColumn ? 'bg-gray-50/30' : ''}`}>
-                            {/* In UP Mode, allow Read-only or small view, here we reuse logic but if UP mode maybe read only? Request said 'menampilkan'. Assuming editable is handled by parent */}
                             {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, student.id, 'kts', null)} className={getScoreInputClass(semesterData.kts)} placeholder="-" /> : <span className="text-sm text-gray-600 font-semibold">{semesterData.kts ?? '-'}</span>}
                        </td>
                        <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('sas', null) && !showUpColumn ? 'bg-gray-50/30' : ''}`}>
@@ -224,10 +236,10 @@ const GradeTable: React.FC<GradeTableProps> = ({
                            <td className="p-1 border-l border-gray-300 text-center bg-orange-50/30 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-white group-hover:bg-orange-50/30">
                                 <input 
                                     type="number" 
-                                    value={semesterData.nilaiUp ?? ''} 
+                                    value={displayUp ?? ''} 
                                     onChange={(e) => handleInputChange(e, student.id, 'up', null)}
                                     className={`w-full text-center py-1.5 text-sm font-bold focus:outline-none rounded transition-all placeholder-gray-300 ${
-                                        semesterData.nilaiUp !== null ? 'bg-orange-100 text-orange-800' : 'bg-transparent text-gray-800'
+                                        displayUp !== null ? 'bg-orange-100 text-orange-800' : 'bg-transparent text-gray-800'
                                     }`}
                                     placeholder="-" 
                                     disabled={!isEditable}
