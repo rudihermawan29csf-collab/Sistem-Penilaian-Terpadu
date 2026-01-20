@@ -306,8 +306,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
         const dataAttendance = student.attendance?.[settings.activeSemester] || { s: 0, i: 0, a: 0 };
         const dataExtra = student.extracurricularRecord?.[settings.activeSemester] || [];
 
-        // Determine Wali Kelas for this class (might be different if mixing classes, though here we select one class)
-        // Re-using useMemo logic but safe inside loop since we have selectedClass
+        // Determine Wali Kelas for this class
         const wk = settings.waliKelasMap?.[selectedClass] || { name: '..................................', nip: '..................................' };
 
         // --- PAGE 1 START ---
@@ -341,15 +340,15 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             doc.line(10, textY + 2, 205, textY + 2);
             doc.setLineWidth(0.2);
             doc.line(10, textY + 3, 205, textY + 3);
-            return textY + 10;
+            return textY + 8; // Reduce buffer
         };
 
         const addStudentHeader = (yStart: number) => {
             doc.setFont("times", "normal");
-            doc.setFontSize(10);
+            doc.setFontSize(9); // Smaller font
             const leftX = 15;
             const rightX = 140;
-            const lineHeight = 5;
+            const lineHeight = 4.5;
 
             doc.text(`Nama Siswa`, leftX, yStart);
             doc.text(`:  ${student.name}`, leftX + 25, yStart);
@@ -361,7 +360,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             doc.text(`Fase`, rightX, yStart + lineHeight);
             doc.text(`:  D`, rightX + 15, yStart + lineHeight);
 
-            return yStart + lineHeight * 2 + 5;
+            return yStart + lineHeight * 2 + 4;
         };
 
         let y = 10;
@@ -369,16 +368,16 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
 
         doc.setFont("times", "bold");
         doc.setFontSize(12);
-        doc.text("LAPORAN HASIL BELAJAR", 108, y, { align: "center" });
-        doc.text(`TENGAH SEMESTER ${settings.activeSemester === 'ganjil' ? '1 (GANJIL)' : '2 (GENAP)'}`, 108, y + 6, { align: "center" });
+        doc.text("LAPORAN HASIL BELAJAR SISWA", 108, y, { align: "center" });
         doc.setFontSize(10);
-        doc.text(`TAHUN PELAJARAN ${settings.academicYear}`, 108, y + 11, { align: "center" });
-        y += 20;
+        doc.text(`TENGAH SEMESTER ${settings.activeSemester === 'ganjil' ? 'GANJIL' : 'GENAP'} TAHUN PELAJARAN ${settings.academicYear}`, 108, y + 5, { align: "center" });
+        y += 12;
 
         y = addStudentHeader(y);
 
         // A. Nilai Akademik
         doc.setFont("times", "bold");
+        doc.setFontSize(10);
         doc.text("A. Nilai Akademik", 15, y - 2);
 
         const head: any[][] = [];
@@ -389,7 +388,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             colSpans.push({ content: chap.replace('bab', 'TP '), colSpan: config.colMap[chap].length, styles: { halign: 'center' } });
             config.colMap[chap].forEach(f => {
                 const chapNum = chap.replace('bab','');
-                subHeaders.push({ content: f === 'sum' ? `Sum ${chapNum}` : f.toUpperCase(), styles: { halign: 'center', fontSize: 8 } });
+                subHeaders.push({ content: f === 'sum' ? `Sum ${chapNum}` : f.toUpperCase(), styles: { halign: 'center', fontSize: 7 } });
             });
         });
         colSpans.push({ content: 'KTS', rowSpan: 2 });
@@ -410,14 +409,15 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             return row;
         });
 
+        // Compact Table for Single Page Fit
         autoTable(doc, {
             startY: y,
             head: head,
             body: body,
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
-            columnStyles: { 0: { halign: 'center' }, 1: { halign: 'left' } },
+            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', valign: 'middle' },
+            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 1: { halign: 'left' } },
             didParseCell: (data) => {
                 if (data.section === 'body' && data.column.index > 1) {
                     data.cell.styles.halign = 'center';
@@ -425,10 +425,10 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             }
         });
 
-        y = (doc as any).lastAutoTable.finalY + 10;
+        y = (doc as any).lastAutoTable.finalY + 4; // Compact spacing
 
         // B. Kokurikuler
-        doc.setFontSize(10);
+        doc.setFontSize(9);
         doc.setFont("times", "bold");
         doc.text("B. Kokurikuler", 15, y);
         const kokuBody = (settings.kokurikulerProjects || []).map((p, i) => [i + 1, p.theme, p.description]);
@@ -439,15 +439,15 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             head: [['No', 'Tema', 'Deskripsi']],
             body: kokuBody,
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
             headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 1: { cellWidth: 50 } }
+            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 1: { cellWidth: 50 } }
         });
 
-        y = (doc as any).lastAutoTable.finalY + 10;
+        y = (doc as any).lastAutoTable.finalY + 4;
 
         // C. Ekstrakurikuler
-        doc.setFontSize(10);
+        doc.setFontSize(9);
         doc.setFont("times", "bold");
         doc.text("C. Ekstrakurikuler", 15, y);
         const extraBody = dataExtra.map((e, i) => [i + 1, e.activityName, e.predikat, e.description]);
@@ -458,16 +458,16 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             head: [['No', 'Kegiatan', 'Predikat', 'Keterangan']],
             body: extraBody,
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
             headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 2: { halign: 'center' } }
+            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 2: { halign: 'center' } }
         });
 
-        y = (doc as any).lastAutoTable.finalY + 10;
+        y = (doc as any).lastAutoTable.finalY + 4;
 
-        // D & E
+        // D & E (Side by Side)
         const startY_DE = y;
-        doc.setFontSize(10);
+        doc.setFontSize(9);
         doc.setFont("times", "bold");
         doc.text("D. Akhlak & Kepribadian", 15, y);
 
@@ -476,9 +476,9 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             head: [['No', 'Aspek', 'Predikat', 'Keterangan']],
             body: [['1', 'Akhlak', 'A', 'Sangat Baik'], ['2', 'Kepribadian', 'A', 'Sangat Baik']],
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
             headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 2: { halign: 'center' } },
+            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 2: { halign: 'center' } },
             margin: { right: 115 },
         });
         const finalY_D = (doc as any).lastAutoTable.finalY;
@@ -493,32 +493,52 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                 ['3', 'Tanpa Ket.', `${dataAttendance.a} Hari`]
             ],
             theme: 'grid',
-            styles: { font: "times", fontSize: 9, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
+            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
             headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 2: { halign: 'center' } },
+            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 2: { halign: 'center' } },
             margin: { left: 115 },
         });
         const finalY_E = (doc as any).lastAutoTable.finalY;
-        y = Math.max(finalY_D, finalY_E) + 15;
+        
+        y = Math.max(finalY_D, finalY_E) + 8;
 
-        // Signatures
-        if (y > 280) { doc.addPage(); y = 20; }
+        // --- SIGNATURES (SINGLE ROW) ---
+        // Layout: Left (KS), Center (Parent), Right (Wali)
+        
+        // Ensure space for signatures
+        if (y > 290) { doc.addPage(); y = 20; }
+
         doc.setFont("times", "normal");
-        doc.text("Mengetahui,", 30, y, { align: "center" });
-        doc.text("Orang Tua / Wali Murid", 30, y + 5, { align: "center" });
-        doc.text(dateStr, 170, y, { align: "center" });
-        doc.text("Wali Kelas", 170, y + 5, { align: "center" });
-        doc.text("Mengetahui,", 108, y + 35, { align: "center" });
-        doc.text("Kepala Sekolah", 108, y + 40, { align: "center" });
+        doc.setFontSize(9);
 
-        y += 25;
+        const yName = y + 22;
+        const yNip = y + 26;
+
+        const xLeft = 40;   // Kepala Sekolah
+        const xCenter = 108; // Orang Tua
+        const xRight = 175;  // Wali Kelas
+
+        // 1. Wali Kelas (Right) with Date
+        doc.text(`Mojokerto, ${dateStr}`, xRight, y, { align: "center" });
+        doc.text("Wali Kelas", xRight, y + 4, { align: "center" });
         doc.setFont("times", "bold underline");
-        doc.text("..................................", 30, y);
-        doc.text(wk.name, 170, y, { align: "center" });
-        doc.text(settings.principalName, 108, y + 40, { align: "center" });
+        doc.text(wk.name, xRight, yName, { align: "center" });
         doc.setFont("times", "normal");
-        doc.text(`NIP. ${wk.nip}`, 170, y + 5, { align: "center" });
-        doc.text(`NIP. ${settings.principalNip}`, 108, y + 45, { align: "center" });
+        doc.text(`NIP. ${wk.nip}`, xRight, yNip, { align: "center" });
+
+        // 2. Orang Tua (Center)
+        doc.text("Mengetahui,", xCenter, y, { align: "center" }); // Align "Mengetahui" with "Mojokerto" line for symmetry
+        doc.text("Orang Tua / Wali Murid", xCenter, y + 4, { align: "center" });
+        doc.text("..........................................", xCenter, yName, { align: "center" });
+
+        // 3. Kepala Sekolah (Left)
+        doc.text("Mengetahui,", xLeft, y, { align: "center" });
+        doc.text("Kepala Sekolah", xLeft, y + 4, { align: "center" });
+        doc.setFont("times", "bold underline");
+        doc.text(settings.principalName, xLeft, yName, { align: "center" });
+        doc.setFont("times", "normal");
+        doc.text(`NIP. ${settings.principalNip}`, xLeft, yNip, { align: "center" });
+
 
         // --- PAGE 2: MONITORING ---
         doc.addPage();
@@ -566,30 +586,37 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
         doc.setFontSize(8);
         doc.text("* Mohon segera menyelesaikan tanggungan dan remidi sebelum Penilaian Akhir Semester.", 15, y);
 
-        // Signatures Page 2
+        // Signatures Page 2 (Single Row)
         y += 15;
         doc.setFont("times", "normal");
-        doc.setFontSize(10);
-        
-        doc.text("Mengetahui,", 30, y, { align: "center" });
-        doc.text("Orang Tua / Wali Murid", 30, y + 5, { align: "center" });
-        doc.text(dateStr, 170, y, { align: "center" });
-        doc.text("Wali Kelas", 170, y + 5, { align: "center" });
-        doc.text("Mengetahui,", 108, y + 35, { align: "center" });
-        doc.text("Kepala Sekolah", 108, y + 40, { align: "center" });
+        doc.setFontSize(9);
 
-        y += 25;
+        const yName2 = y + 22;
+        const yNip2 = y + 26;
+
+        // 1. Wali Kelas (Right)
+        doc.text(`Mojokerto, ${dateStr}`, xRight, y, { align: "center" });
+        doc.text("Wali Kelas", xRight, y + 4, { align: "center" });
         doc.setFont("times", "bold underline");
-        doc.text("..................................", 30, y);
-        doc.text(wk.name, 170, y, { align: "center" });
-        doc.text(settings.principalName, 108, y + 40, { align: "center" });
+        doc.text(wk.name, xRight, yName2, { align: "center" });
         doc.setFont("times", "normal");
-        doc.text(`NIP. ${wk.nip}`, 170, y + 5, { align: "center" });
-        doc.text(`NIP. ${settings.principalNip}`, 108, y + 45, { align: "center" });
+        doc.text(`NIP. ${wk.nip}`, xRight, yNip2, { align: "center" });
+
+        // 2. Orang Tua (Center)
+        doc.text("Mengetahui,", xCenter, y, { align: "center" });
+        doc.text("Orang Tua / Wali Murid", xCenter, y + 4, { align: "center" });
+        doc.text("..........................................", xCenter, yName2, { align: "center" });
+
+        // 3. Kepala Sekolah (Left)
+        doc.text("Mengetahui,", xLeft, y, { align: "center" });
+        doc.text("Kepala Sekolah", xLeft, y + 4, { align: "center" });
+        doc.setFont("times", "bold underline");
+        doc.text(settings.principalName, xLeft, yName2, { align: "center" });
+        doc.setFont("times", "normal");
+        doc.text(`NIP. ${settings.principalNip}`, xLeft, yNip2, { align: "center" });
     }
 
     // DRAW WATERMARK AS OVERLAY ON ALL PAGES
-    // Uses calculated wmWidth and wmHeight from the start of the function
     const totalPages = doc.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
@@ -598,7 +625,6 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                 doc.saveGraphicsState();
                 doc.setGState(new doc.GState({ opacity: 0.1 }));
                 
-                // Center calculations using the proportional width/height
                 const x = (215.9 - wmWidth) / 2;
                 const y = (330.2 - wmHeight) / 2;
                 
@@ -685,8 +711,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
         </div>
       </div>
 
-      {/* Report Preview - Same as before */}
-      {/* ... keeping the rendering logic for preview as it was correct ... */}
+      {/* Report Preview - Modified Signatures */}
       <div className="flex-1 overflow-auto p-8 custom-scrollbar print:p-0 print:overflow-visible">
         {selectedStudent ? (
           // Modified container for F4 Size (215mm x 330mm)
@@ -703,7 +728,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
             <div className={`p-[10mm_15mm] flex flex-col min-h-[330mm] h-full relative z-10 ${viewMode === 'tanggungan' ? 'hidden print:hidden' : ''}`}>
                 
                 {/* KOP SEKOLAH */}
-                <div className="flex items-center justify-center border-b-4 border-double border-black pb-2 mb-6 gap-4">
+                <div className="flex items-center justify-center border-b-4 border-double border-black pb-2 mb-4 gap-4">
                     <div className="w-24 h-24 flex items-center justify-center shrink-0">
                         <img 
                             src={settings.kabupatenLogoUrl || "https://upload.wikimedia.org/wikipedia/commons/e/e3/Logo_Kabupaten_Mojokerto.png"} 
@@ -731,14 +756,13 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                 </div>
 
                 {/* Header Title */}
-                <div className="text-center mb-6 font-serif">
+                <div className="text-center mb-4 font-serif">
                     <h1 className="text-xl font-bold tracking-wide uppercase underline decoration-2 underline-offset-4">LAPORAN HASIL BELAJAR</h1>
-                    <h1 className="text-base font-bold tracking-wide uppercase mt-2">TENGAH SEMESTER {settings.activeSemester === 'ganjil' ? '1 (GANJIL)' : '2 (GENAP)'}</h1>
-                    <div className="text-xs font-bold uppercase mt-1">TAHUN PELAJARAN {settings.academicYear}</div>
+                    <h1 className="text-sm font-bold tracking-wide uppercase mt-1">TENGAH SEMESTER {settings.activeSemester === 'ganjil' ? '1 (GANJIL)' : '2 (GENAP)'} TAHUN PELAJARAN {settings.academicYear}</h1>
                 </div>
 
                 {/* Student Info - Smaller Font */}
-                <div className="mb-6 font-medium flex justify-between text-[11px]">
+                <div className="mb-4 font-medium flex justify-between text-[11px]">
                 <table className="w-2/3">
                     <tbody>
                     <tr><td className="w-24 py-0.5">Nama Siswa</td><td className="w-4">:</td><td className="font-bold uppercase">{selectedStudent.name}</td></tr>
@@ -754,9 +778,9 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                 </div>
 
                 {/* A. Academic Table */}
-                <div className="mb-6">
-                <h3 className="font-bold text-sm mb-2 uppercase border-b border-black inline-block">A. Nilai Akademik</h3>
-                <table className="w-full border-collapse border border-black text-[10px] font-serif">
+                <div className="mb-4">
+                <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">A. Nilai Akademik</h3>
+                <table className="w-full border-collapse border border-black text-[9px] font-serif">
                     <thead>
                     <tr className="bg-gray-100">
                         <th className="border border-black p-1 w-6 text-center" rowSpan={2}>No</th>
@@ -774,8 +798,7 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                             <React.Fragment key={chap}>
                                 {chapterConfig.colMap[chap].map(f => (
                                     <th key={`${chap}-${f}`} className="border border-black p-1 w-8 text-center uppercase font-normal">
-                                        {/* Change S to Sum 1, Sum 2 */}
-                                        {f === 'sum' ? `Sum ${chap.replace('bab','')}` : f.toUpperCase()}
+                                        {f === 'sum' ? `S${chap.replace('bab','')}` : f.toUpperCase()}
                                     </th>
                                 ))}
                             </React.Fragment>
@@ -785,25 +808,21 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                     <tbody>
                     {subjectsData.map((subj, idx) => (
                         <tr key={idx}>
-                        <td className="border border-black p-1 text-center">{idx + 1}</td>
-                        <td className="border border-black p-1 font-medium">{subj.subject}</td>
-                        
-                        {/* Dynamic Columns */}
+                        <td className="border border-black p-0.5 text-center">{idx + 1}</td>
+                        <td className="border border-black p-0.5 font-medium">{subj.subject}</td>
                         {chapterConfig.activeChaps.map(chap => (
                             <React.Fragment key={chap}>
                                 {chapterConfig.colMap[chap].map(f => (
-                                    <td key={`${chap}-${f}`} className="border border-black p-1 text-center">
+                                    <td key={`${chap}-${f}`} className="border border-black p-0.5 text-center">
                                         {subj.chapterScores[`${chap}_${f}`]}
                                     </td>
                                 ))}
                             </React.Fragment>
                         ))}
-                        
-                        <td className="border border-black p-1 text-center">
+                        <td className="border border-black p-0.5 text-center">
                             {subj.kts !== null ? subj.kts : '-'}
                         </td>
-
-                        <td className="border border-black p-1 text-center font-bold bg-gray-50">
+                        <td className="border border-black p-0.5 text-center font-bold bg-gray-50">
                             {subj.finalAvg !== null ? subj.finalAvg : '-'}
                         </td>
                         </tr>
@@ -813,9 +832,9 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                 </div>
 
                 {/* B. Kokurikuler */}
-                <div className="mb-6">
-                <h3 className="font-bold text-sm mb-2 uppercase border-b border-black inline-block">B. Kokurikuler</h3>
-                <table className="w-full border-collapse border border-black text-xs font-serif">
+                <div className="mb-4">
+                <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">B. Kokurikuler</h3>
+                <table className="w-full border-collapse border border-black text-[9px] font-serif">
                     <thead>
                     <tr className="bg-gray-100">
                         <th className="border border-black p-1 w-8 text-center">No</th>
@@ -827,22 +846,22 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                     {settings.kokurikulerProjects && settings.kokurikulerProjects.length > 0 ? (
                         settings.kokurikulerProjects.map((proj, idx) => (
                             <tr key={idx}>
-                                <td className="border border-black p-1 text-center">{idx + 1}</td>
-                                <td className="border border-black p-1 font-medium">{proj.theme}</td>
-                                <td className="border border-black p-1">{proj.description}</td>
+                                <td className="border border-black p-0.5 text-center">{idx + 1}</td>
+                                <td className="border border-black p-0.5 font-medium">{proj.theme}</td>
+                                <td className="border border-black p-0.5">{proj.description}</td>
                             </tr>
                         ))
                     ) : (
-                        <tr><td className="border border-black p-1 text-center" colSpan={3}>-</td></tr>
+                        <tr><td className="border border-black p-0.5 text-center" colSpan={3}>-</td></tr>
                     )}
                     </tbody>
                 </table>
                 </div>
 
                 {/* C. Ekstrakurikuler */}
-                <div className="mb-6">
-                <h3 className="font-bold text-sm mb-2 uppercase border-b border-black inline-block">C. Ekstrakurikuler</h3>
-                <table className="w-full border-collapse border border-black text-xs font-serif">
+                <div className="mb-4">
+                <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">C. Ekstrakurikuler</h3>
+                <table className="w-full border-collapse border border-black text-[9px] font-serif">
                     <thead>
                     <tr className="bg-gray-100">
                         <th className="border border-black p-1 w-8 text-center">No</th>
@@ -854,14 +873,14 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                     <tbody>
                     {extraData.length > 0 ? extraData.map((extra, i) => (
                         <tr key={i}>
-                            <td className="border border-black p-1 text-center">{i + 1}</td>
-                            <td className="border border-black p-1 font-medium">{extra.activityName}</td>
-                            <td className="border border-black p-1 text-center font-bold">{extra.predikat}</td>
-                            <td className="border border-black p-1">{extra.description}</td>
+                            <td className="border border-black p-0.5 text-center">{i + 1}</td>
+                            <td className="border border-black p-0.5 font-medium">{extra.activityName}</td>
+                            <td className="border border-black p-0.5 text-center font-bold">{extra.predikat}</td>
+                            <td className="border border-black p-0.5">{extra.description}</td>
                         </tr>
                     )) : (
                         <tr>
-                            <td className="border border-black p-1 text-center" colSpan={4}>-</td>
+                            <td className="border border-black p-0.5 text-center" colSpan={4}>-</td>
                         </tr>
                     )}
                     </tbody>
@@ -870,9 +889,9 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
 
                 <div className="flex gap-4">
                     {/* D. Akhlak & Kepribadian */}
-                    <div className="flex-1 mb-6">
-                    <h3 className="font-bold text-sm mb-2 uppercase border-b border-black inline-block">D. Akhlak & Kepribadian</h3>
-                    <table className="w-full border-collapse border border-black text-xs font-serif">
+                    <div className="flex-1 mb-4">
+                    <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">D. Akhlak & Kepribadian</h3>
+                    <table className="w-full border-collapse border border-black text-[9px] font-serif">
                         <thead>
                         <tr className="bg-gray-100">
                             <th className="border border-black p-1 w-8 text-center">No</th>
@@ -883,29 +902,29 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                         </thead>
                         <tbody>
                         <tr>
-                            <td className="border border-black p-1 text-center">1</td>
-                            <td className="border border-black p-1">Akhlak</td>
-                            <td className="border border-black p-1 text-center font-bold">
+                            <td className="border border-black p-0.5 text-center">1</td>
+                            <td className="border border-black p-0.5">Akhlak</td>
+                            <td className="border border-black p-0.5 text-center font-bold">
                                 <span className="print:inline">A</span>
                             </td>
-                            <td className="border border-black p-1">Sangat Baik</td>
+                            <td className="border border-black p-0.5">Sangat Baik</td>
                         </tr>
                         <tr>
-                            <td className="border border-black p-1 text-center">2</td>
-                            <td className="border border-black p-1">Kepribadian</td>
-                            <td className="border border-black p-1 text-center font-bold">
+                            <td className="border border-black p-0.5 text-center">2</td>
+                            <td className="border border-black p-0.5">Kepribadian</td>
+                            <td className="border border-black p-0.5 text-center font-bold">
                                 <span className="print:inline">A</span>
                             </td>
-                            <td className="border border-black p-1">Sangat Baik</td>
+                            <td className="border border-black p-0.5">Sangat Baik</td>
                         </tr>
                         </tbody>
                     </table>
                     </div>
 
                     {/* E. Presensi */}
-                    <div className="flex-1 mb-6">
-                    <h3 className="font-bold text-sm mb-2 uppercase border-b border-black inline-block">E. Ketidakhadiran</h3>
-                    <table className="w-full border-collapse border border-black text-xs font-serif">
+                    <div className="flex-1 mb-4">
+                    <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">E. Ketidakhadiran</h3>
+                    <table className="w-full border-collapse border border-black text-[9px] font-serif">
                         <thead>
                         <tr className="bg-gray-100">
                             <th className="border border-black p-1 w-8 text-center">No</th>
@@ -915,50 +934,54 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                         </thead>
                         <tbody>
                         <tr>
-                            <td className="border border-black p-1 text-center">1</td>
-                            <td className="border border-black p-1">Sakit</td>
-                            <td className="border border-black p-1 text-center">{attendanceData.s} Hari</td>
+                            <td className="border border-black p-0.5 text-center">1</td>
+                            <td className="border border-black p-0.5">Sakit</td>
+                            <td className="border border-black p-0.5 text-center">{attendanceData.s} Hari</td>
                         </tr>
                         <tr>
-                            <td className="border border-black p-1 text-center">2</td>
-                            <td className="border border-black p-1">Izin</td>
-                            <td className="border border-black p-1 text-center">{attendanceData.i} Hari</td>
+                            <td className="border border-black p-0.5 text-center">2</td>
+                            <td className="border border-black p-0.5">Izin</td>
+                            <td className="border border-black p-0.5 text-center">{attendanceData.i} Hari</td>
                         </tr>
                         <tr>
-                            <td className="border border-black p-1 text-center">3</td>
-                            <td className="border border-black p-1">Tanpa Keterangan</td>
-                            <td className="border border-black p-1 text-center">{attendanceData.a} Hari</td>
+                            <td className="border border-black p-0.5 text-center">3</td>
+                            <td className="border border-black p-0.5">Tanpa Keterangan</td>
+                            <td className="border border-black p-0.5 text-center">{attendanceData.a} Hari</td>
                         </tr>
                         </tbody>
                     </table>
                     </div>
                 </div>
 
-                {/* Signatures Page 1 */}
-                <div className="mt-auto pt-4 flex justify-between text-xs break-inside-avoid">
-                    <div className="text-center w-48">
+                {/* Signatures Page 1 (Single Row: KS - Parent - WK) */}
+                <div className="mt-auto pt-2 flex justify-between items-end text-xs break-inside-avoid">
+                    {/* Kiri: Kepala Sekolah */}
+                    <div className="text-center w-40">
+                        <p className="mb-16">Mengetahui,<br/>Kepala Sekolah</p>
+                        <p className="font-bold underline">{settings.principalName}</p>
+                        <p>NIP. {settings.principalNip}</p>
+                    </div>
+
+                    {/* Tengah: Orang Tua */}
+                    <div className="text-center w-40">
                         <p className="mb-16">Mengetahui,<br/>Orang Tua / Wali Murid</p>
                         <p className="font-bold border-b border-black inline-block min-w-[120px]"></p>
                     </div>
 
-                    <div className="text-center w-48">
+                    {/* Kanan: Wali Kelas */}
+                    <div className="text-center w-40">
                         <p className="mb-16">
                             Mojokerto, {settings.midSemesterDate || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br/>
                             Wali Kelas
                         </p>
-                        <p className="font-bold border-b border-black inline-block min-w-[120px]">{waliKelasInfo.name}</p>
+                        <p className="font-bold underline">{waliKelasInfo.name}</p>
                         <p className="mt-1">NIP. {waliKelasInfo.nip}</p>
                     </div>
-                </div>
-                <div className="mt-4 text-center break-inside-avoid text-xs pb-4">
-                    <p className="mb-16">Mengetahui,<br/>Kepala Sekolah</p>
-                    <p className="font-bold underline">{settings.principalName}</p>
-                    <p>NIP. {settings.principalNip}</p>
                 </div>
             </div>
 
             {/* --- PAGE 2: MONITORING TANGGUNGAN & REMIDI --- */}
-            {/* ... repeated implementation for second page preview same as before ... */}
+            {/* Same layout for Page 2 preview */}
             <div className={`p-[10mm_15mm] h-full flex flex-col min-h-[330mm] relative z-10 ${viewMode === 'rapor' ? 'hidden print:hidden' : ''}`}>
                 
                 {/* KOP SEKOLAH (Repeated on Page 2) */}
@@ -989,110 +1012,111 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
                     </div>
                 </div>
 
-                <div className="text-center mb-6 font-serif border-b-2 border-black pb-2">
-                    <h2 className="text-lg font-bold uppercase">CATATAN AKADEMIK SISWA</h2>
-                    <h3 className="text-base font-bold">DAFTAR TANGGUNGAN & REMIDI</h3>
-                </div>
-                
-                <div className="mb-6 font-medium text-[11px]">
-                    <p><span className="w-24 inline-block">Nama Siswa</span> : <strong>{selectedStudent.name}</strong></p>
-                    <p><span className="w-24 inline-block">Kelas</span> : <strong>{selectedStudent.kelas}</strong></p>
+                <div className="text-center mb-6 font-serif">
+                    <h1 className="text-lg font-bold tracking-wide uppercase">CATATAN AKADEMIK SISWA</h1>
+                    <h1 className="text-base font-bold tracking-wide uppercase mt-1">DAFTAR TANGGUNGAN & REMIDI</h1>
                 </div>
 
-                {/* Tanggungan Table */}
-                <div className="mb-8">
-                    <h3 className="font-bold text-sm mb-2 text-red-600 uppercase border-b border-gray-300 inline-block">I. Daftar Tanggungan (Nilai Kosong / 0)</h3>
-                    <table className="w-full border-collapse border border-black text-xs font-serif">
+                {/* Student Info */}
+                <div className="mb-6 font-medium flex justify-between text-xs">
+                <table className="w-2/3">
+                    <tbody>
+                    <tr><td className="w-24 py-1">Nama Siswa</td><td className="w-4">:</td><td className="font-bold uppercase">{selectedStudent.name}</td></tr>
+                    <tr><td className="py-1">NIS / NISN</td><td>:</td><td>{selectedStudent.nis} / {selectedStudent.nisn || '-'}</td></tr>
+                    </tbody>
+                </table>
+                <table className="w-1/3">
+                    <tbody>
+                        <tr><td className="w-20 py-1">Kelas</td><td className="w-4">:</td><td className="font-bold">{selectedStudent.kelas}</td></tr>
+                    </tbody>
+                </table>
+                </div>
+
+                <div className="mb-6">
+                    <h3 className="font-bold text-sm mb-2">I. Daftar Tanggungan (Nilai Kosong / 0)</h3>
+                    <table className="w-full border-collapse border border-black text-xs">
                         <thead>
                             <tr className="bg-red-50">
-                                <th className="border border-black p-2 w-10 text-center">No</th>
-                                <th className="border border-black p-2 text-left">Mata Pelajaran</th>
-                                <th className="border border-black p-2 text-left">Jenis Tagihan / Tugas</th>
-                                <th className="border border-black p-2 w-20 text-center">Nilai</th>
+                                <th className="border border-black p-1 w-8 text-center">No</th>
+                                <th className="border border-black p-1 text-left">Mata Pelajaran</th>
+                                <th className="border border-black p-1 text-left">Tagihan</th>
+                                <th className="border border-black p-1 w-16 text-center">Nilai</th>
                             </tr>
                         </thead>
                         <tbody>
                             {studentIssues.tanggungan.length > 0 ? (
                                 studentIssues.tanggungan.map((item, idx) => (
                                     <tr key={idx}>
-                                        <td className="border border-black p-2 text-center">{idx + 1}</td>
-                                        <td className="border border-black p-2 font-bold">{item.subject}</td>
-                                        <td className="border border-black p-2">{item.task}</td>
-                                        <td className="border border-black p-2 text-center font-bold text-red-600">0</td>
+                                        <td className="border border-black p-1 text-center">{idx + 1}</td>
+                                        <td className="border border-black p-1">{item.subject}</td>
+                                        <td className="border border-black p-1">{item.task}</td>
+                                        <td className="border border-black p-1 text-center font-bold text-red-600">0</td>
                                     </tr>
                                 ))
                             ) : (
-                                <tr>
-                                    <td className="border border-black p-4 text-center italic text-gray-500" colSpan={4}>Tidak ada tanggungan.</td>
-                                </tr>
+                                <tr><td className="border border-black p-1 text-center" colSpan={4}>Tidak ada tanggungan</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
 
-                {/* Remidi Table */}
-                <div className="mb-8">
-                    <h3 className="font-bold text-sm mb-2 text-orange-600 uppercase border-b border-gray-300 inline-block">II. Daftar Remidi (Nilai &lt; 70)</h3>
-                    <table className="w-full border-collapse border border-black text-xs font-serif">
+                <div className="mb-4">
+                    <h3 className="font-bold text-sm mb-2">II. Daftar Remidi (Nilai &lt; 70)</h3>
+                    <table className="w-full border-collapse border border-black text-xs">
                         <thead>
                             <tr className="bg-orange-50">
-                                <th className="border border-black p-2 w-10 text-center">No</th>
-                                <th className="border border-black p-2 text-left">Mata Pelajaran</th>
-                                <th className="border border-black p-2 text-left">Jenis Tagihan / Tugas</th>
-                                <th className="border border-black p-2 w-20 text-center">Nilai</th>
+                                <th className="border border-black p-1 w-8 text-center">No</th>
+                                <th className="border border-black p-1 text-left">Mata Pelajaran</th>
+                                <th className="border border-black p-1 text-left">Tagihan</th>
+                                <th className="border border-black p-1 w-16 text-center">Nilai</th>
                             </tr>
                         </thead>
                         <tbody>
                             {studentIssues.remidi.length > 0 ? (
                                 studentIssues.remidi.map((item, idx) => (
                                     <tr key={idx}>
-                                        <td className="border border-black p-2 text-center">{idx + 1}</td>
-                                        <td className="border border-black p-2 font-bold">{item.subject}</td>
-                                        <td className="border border-black p-2">{item.task}</td>
-                                        <td className="border border-black p-2 text-center font-bold text-orange-600">{item.score}</td>
+                                        <td className="border border-black p-1 text-center">{idx + 1}</td>
+                                        <td className="border border-black p-1">{item.subject}</td>
+                                        <td className="border border-black p-1">{item.task}</td>
+                                        <td className="border border-black p-1 text-center font-bold text-orange-600">{item.score}</td>
                                     </tr>
                                 ))
                             ) : (
-                                <tr>
-                                    <td className="border border-black p-4 text-center italic text-gray-500" colSpan={4}>Tidak ada nilai remidi.</td>
-                                </tr>
+                                <tr><td className="border border-black p-1 text-center" colSpan={4}>Tidak ada remidi</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
-
-                <div className="text-xs italic text-gray-500 border-t pt-2 mb-8">
-                    <p>* Mohon segera menyelesaikan tanggungan dan remidi sebelum Penilaian Akhir Semester.</p>
-                </div>
+                
+                <p className="text-[10px] italic mt-2">* Mohon segera menyelesaikan tanggungan dan remidi sebelum Penilaian Akhir Semester.</p>
 
                 {/* Signatures Page 2 */}
-                <div className="mt-auto flex justify-between text-xs break-inside-avoid">
-                    <div className="text-center w-48">
+                <div className="mt-auto pt-4 flex justify-between items-end text-xs break-inside-avoid">
+                    <div className="text-center w-40">
+                        <p className="mb-16">Mengetahui,<br/>Kepala Sekolah</p>
+                        <p className="font-bold underline">{settings.principalName}</p>
+                        <p>NIP. {settings.principalNip}</p>
+                    </div>
+                    <div className="text-center w-40">
                         <p className="mb-16">Mengetahui,<br/>Orang Tua / Wali Murid</p>
                         <p className="font-bold border-b border-black inline-block min-w-[120px]"></p>
                     </div>
-
-                    <div className="text-center w-48">
+                    <div className="text-center w-40">
                         <p className="mb-16">
                             Mojokerto, {settings.midSemesterDate || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br/>
                             Wali Kelas
                         </p>
-                        <p className="font-bold border-b border-black inline-block min-w-[120px]">{waliKelasInfo.name}</p>
+                        <p className="font-bold underline">{waliKelasInfo.name}</p>
                         <p className="mt-1">NIP. {waliKelasInfo.nip}</p>
                     </div>
-                </div>
-                <div className="mt-4 text-center break-inside-avoid text-xs pb-4">
-                    <p className="mb-16">Mengetahui,<br/>Kepala Sekolah</p>
-                    <p className="font-bold underline">{settings.principalName}</p>
-                    <p>NIP. {settings.principalNip}</p>
                 </div>
             </div>
 
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <Search size={48} className="mb-4 opacity-20" />
-            <p>Silakan pilih Kelas dan Siswa untuk menampilkan Rapor Sisipan.</p>
+            <User size={64} className="mb-4 opacity-20" />
+            <p>Pilih kelas dan siswa untuk melihat rapor sisipan.</p>
           </div>
         )}
       </div>

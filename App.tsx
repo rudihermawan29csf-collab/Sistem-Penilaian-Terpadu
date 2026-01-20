@@ -669,7 +669,7 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                         )}
-                        {/* Rapor Config Tab - No Changes here, keeping as is */}
+                        {/* Rapor Config Tab */}
                         {activeSettingsTab === 'rapor' && (
                             <div className="space-y-4 animate-fade-in">
                                 <h3 className="font-bold text-gray-700 border-b pb-2 flex items-center gap-2"><TableProperties size={16}/> Konfigurasi Kolom Rapor Sisipan</h3>
@@ -703,7 +703,143 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                         )}
-                        {/* Academic & Other Tabs - Omitted for brevity, assuming existing content */}
+                        {/* Academic Config Tab */}
+                        {activeSettingsTab === 'academic' && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
+                                {/* Nilai UP Config */}
+                                <div className="space-y-4">
+                                    <h3 className="font-bold text-gray-700 border-b pb-2 flex items-center gap-2"><Star size={16} /> Konversi Nilai UP</h3>
+                                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                        <div className="grid grid-cols-3 gap-2 mb-2 text-xs font-bold text-gray-500 uppercase">
+                                            <div>Min</div><div>Max</div><div>Nilai</div>
+                                        </div>
+                                        {settings.upRanges?.map((range, idx) => (
+                                            <div key={idx} className="grid grid-cols-3 gap-2 mb-2">
+                                                <input type="number" value={range.min} onChange={(e) => {
+                                                    const newRanges = [...settings.upRanges];
+                                                    newRanges[idx].min = parseInt(e.target.value);
+                                                    setSettings({...settings, upRanges: newRanges});
+                                                }} className="px-2 py-1 border rounded w-full" />
+                                                <input type="number" value={range.max} onChange={(e) => {
+                                                    const newRanges = [...settings.upRanges];
+                                                    newRanges[idx].max = parseInt(e.target.value);
+                                                    setSettings({...settings, upRanges: newRanges});
+                                                }} className="px-2 py-1 border rounded w-full" />
+                                                <input type="number" value={range.value} onChange={(e) => {
+                                                    const newRanges = [...settings.upRanges];
+                                                    newRanges[idx].value = parseInt(e.target.value);
+                                                    setSettings({...settings, upRanges: newRanges});
+                                                }} className="px-2 py-1 border rounded font-bold text-blue-600 w-full" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Mapel Config */}
+                                <div className="space-y-4">
+                                    <h3 className="font-bold text-gray-700 border-b pb-2 flex items-center gap-2"><BookOpen size={16} /> Daftar Mata Pelajaran</h3>
+                                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
+                                        {settings.subjects?.map((subj, idx) => (
+                                            <div key={idx} className="flex gap-2 mb-2">
+                                                <input type="text" value={subj} onChange={(e) => {
+                                                    const newSubjs = [...settings.subjects];
+                                                    newSubjs[idx] = e.target.value;
+                                                    setSettings({...settings, subjects: newSubjs});
+                                                }} className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+                                                <button type="button" onClick={() => {
+                                                    const newSubjs = settings.subjects.filter((_, i) => i !== idx);
+                                                    setSettings({...settings, subjects: newSubjs});
+                                                }} className="p-2 text-red-500 hover:bg-red-100 rounded"><Trash2 size={16}/></button>
+                                            </div>
+                                        ))}
+                                        <button type="button" onClick={() => setSettings({...settings, subjects: [...settings.subjects, "Mapel Baru"]})} className="mt-2 text-sm text-blue-600 font-bold flex items-center gap-1 hover:text-blue-800"><Plus size={14}/> Tambah Mapel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {/* Other Config Tab (Ekstra & Kokurikuler) */}
+                        {activeSettingsTab === 'other' && (
+                            <div className="space-y-8 animate-fade-in">
+                                {/* Kokurikuler */}
+                                <div>
+                                    <h3 className="font-bold text-gray-700 border-b pb-2 mb-4 flex items-center gap-2"><Briefcase size={16} /> Projek Penguatan Profil Pelajar Pancasila (P5)</h3>
+                                    <div className="grid gap-4">
+                                        {settings.kokurikulerProjects?.map((proj, idx) => (
+                                            <div key={idx} className="bg-gray-50 p-4 rounded-lg border border-gray-200 flex gap-4 items-start">
+                                                <div className="flex-1 space-y-2">
+                                                    <input type="text" value={proj.theme} onChange={(e) => {
+                                                        const newProjs = [...settings.kokurikulerProjects];
+                                                        newProjs[idx].theme = e.target.value;
+                                                        setSettings({...settings, kokurikulerProjects: newProjs});
+                                                    }} className="w-full px-3 py-2 border rounded font-bold text-sm" placeholder="Tema Projek" />
+                                                    <textarea value={proj.description} onChange={(e) => {
+                                                        const newProjs = [...settings.kokurikulerProjects];
+                                                        newProjs[idx].description = e.target.value;
+                                                        setSettings({...settings, kokurikulerProjects: newProjs});
+                                                    }} className="w-full px-3 py-2 border rounded text-sm" rows={2} placeholder="Deskripsi Projek" />
+                                                </div>
+                                                <button type="button" onClick={() => {
+                                                    const newProjs = settings.kokurikulerProjects.filter((_, i) => i !== idx);
+                                                    setSettings({...settings, kokurikulerProjects: newProjs});
+                                                }} className="p-2 text-red-500 hover:bg-red-100 rounded"><Trash2 size={16}/></button>
+                                            </div>
+                                        ))}
+                                        <button type="button" onClick={() => setSettings({...settings, kokurikulerProjects: [...(settings.kokurikulerProjects||[]), {theme: "", description: ""}]})} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-500 hover:text-blue-500 font-bold text-sm flex justify-center items-center gap-2"><Plus size={16}/> Tambah Projek</button>
+                                    </div>
+                                </div>
+
+                                {/* Ekstrakurikuler */}
+                                <div>
+                                    <h3 className="font-bold text-gray-700 border-b pb-2 mb-4 flex items-center gap-2"><Award size={16} /> Data Ekstrakurikuler</h3>
+                                    <div className="grid gap-4">
+                                        {settings.extracurriculars?.map((ex, idx) => (
+                                            <div key={idx} className="bg-gray-50 p-4 rounded-lg border border-gray-200 flex gap-4 items-start">
+                                                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <input type="text" value={ex.name} onChange={(e) => {
+                                                        const newEx = [...settings.extracurriculars];
+                                                        newEx[idx].name = e.target.value;
+                                                        setSettings({...settings, extracurriculars: newEx});
+                                                    }} className="px-3 py-2 border rounded font-bold text-sm" placeholder="Nama Ekstra" />
+                                                    
+                                                    {/* Changed Coach Input to Dropdown */}
+                                                    <div className="relative">
+                                                        <select
+                                                            value={ex.coach}
+                                                            onChange={(e) => {
+                                                                const newEx = [...settings.extracurriculars];
+                                                                newEx[idx].coach = e.target.value;
+                                                                setSettings({...settings, extracurriculars: newEx});
+                                                            }}
+                                                            className="w-full px-3 py-2 border border-gray-300 rounded text-sm appearance-none bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        >
+                                                            <option value="">-- Pilih Pembina --</option>
+                                                            {teachers.sort((a,b) => a.name.localeCompare(b.name)).map(t => (
+                                                                <option key={t.id} value={t.name}>{t.name}</option>
+                                                            ))}
+                                                        </select>
+                                                        <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                                                            <ChevronDown size={14} />
+                                                        </div>
+                                                    </div>
+
+                                                    <textarea value={ex.description} onChange={(e) => {
+                                                        const newEx = [...settings.extracurriculars];
+                                                        newEx[idx].description = e.target.value;
+                                                        setSettings({...settings, extracurriculars: newEx});
+                                                    }} className="col-span-1 md:col-span-2 px-3 py-2 border rounded text-sm" rows={1} placeholder="Deskripsi Singkat" />
+                                                </div>
+                                                <button type="button" onClick={() => {
+                                                    const newEx = settings.extracurriculars.filter((_, i) => i !== idx);
+                                                    setSettings({...settings, extracurriculars: newEx});
+                                                }} className="p-2 text-red-500 hover:bg-red-100 rounded mt-1"><Trash2 size={16}/></button>
+                                            </div>
+                                        ))}
+                                        <button type="button" onClick={() => setSettings({...settings, extracurriculars: [...(settings.extracurriculars||[]), {name: "", description: "", coach: ""}]})} className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-500 hover:text-blue-500 font-bold text-sm flex justify-center items-center gap-2"><Plus size={16}/> Tambah Ekstrakurikuler</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
                         <div className="pt-4 flex justify-end sticky bottom-0 bg-white border-t border-gray-100 p-4 -mx-6 -mb-6 rounded-b-xl"><button type="submit" disabled={isSaving} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold shadow-md text-white ${isSaving ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>{isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}<span>Simpan Semua Pengaturan</span></button></div>
                     </form>
                     </div>

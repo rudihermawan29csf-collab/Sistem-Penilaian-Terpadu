@@ -547,13 +547,14 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 p-4 max-w-3xl mx-auto w-full pb-20">
+      {/* Dynamic container width: full for Rapor Sisipan to match Admin layout, constrained for others */}
+      <div className={`flex-1 p-4 w-full pb-20 ${activeTab === 'rapor_sisipan' ? 'max-w-full px-0 py-0 h-full' : 'max-w-3xl mx-auto'}`}>
           {activeTab === 'detail' && renderDetailView()}
           {activeTab === 'summary' && renderSummaryView()}
           {activeTab === 'tanggungan' && renderMonitoringList('tanggungan')}
           {activeTab === 'remidi' && renderMonitoringList('remidi')}
           {activeTab === 'rapor_sisipan' && (
-              <div className="animate-scale-in bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-white h-full animate-fade-in shadow-sm border-t border-gray-200">
                   <MidSemesterReportView 
                       students={[student]} // Pass only the logged-in student
                       teachers={teachers} 
