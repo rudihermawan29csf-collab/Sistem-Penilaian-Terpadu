@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, Users } from 'lucide-react';
 import { SemesterKey, ChapterKey, FormativeKey, GradeType, GradingSession } from '../types';
@@ -88,7 +89,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (type === 'bab' && availableFields.length === 0 && !initialData) {
-        alert("Semua kolom penilaian untuk bab ini sudah digunakan.");
+        alert("Semua kolom penilaian untuk TP ini sudah digunakan.");
         return;
     }
 
@@ -107,10 +108,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
 
   const getChapterLabel = (key: ChapterKey) => {
     const num = parseInt(key.replace('bab', ''));
-    if (currentSemester === 'genap') {
-      return `Bab ${num + 5}`;
-    }
-    return `Bab ${num}`;
+    return `TP ${num}`;
   };
 
   return (
@@ -172,7 +170,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {t === 'bab' ? 'Lingkup Materi' : t.toUpperCase()}
+                  {t === 'bab' ? 'Lingkup Materi (TP)' : t.toUpperCase()}
                 </button>
               ))}
             </div>
@@ -183,7 +181,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">Pilih Bab</label>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Pilih TP</label>
                   <select 
                     value={chapter}
                     onChange={(e) => setChapter(e.target.value as ChapterKey)}
@@ -208,7 +206,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
                     </select>
                   ) : (
                     <div className="text-sm text-red-500 italic mt-2 border border-red-200 bg-red-50 px-3 py-2 rounded-lg">
-                        Semua formatif untuk Bab ini sudah dibuat.
+                        Semua formatif untuk TP ini sudah dibuat.
                     </div>
                   )}
                 </div>

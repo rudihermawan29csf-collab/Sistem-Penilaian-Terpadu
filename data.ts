@@ -11,40 +11,50 @@ const emptySemester: SemesterData = {
   bab3: { ...emptyChapter },
   bab4: { ...emptyChapter },
   bab5: { ...emptyChapter },
-  kts: null, // Renamed from sts
+  kts: null, 
   sas: null,
+  nilaiUp: null, 
 };
 
-// Helper to create data easily
-// CHANGED: Use parseInt(nis) for stable ID. Fallback to random if NIS is invalid.
+// Helper to create data easily - UPDATED to include NISN (auto-generated for dummy)
 const s = (no: number, nis: string, name: string, kelas: string, gender: 'L' | 'P'): Student => ({
   id: parseInt(nis) || (Date.now() + Math.floor(Math.random() * 1000)), 
   no,
   nis,
-  name: name.replace(/"/g, ''), // Remove quotes if any
+  nisn: `00${Math.floor(Math.random() * 89999999) + 10000000}`, // Random NISN
+  name: name.replace(/"/g, ''), 
   kelas,
   gender,
+  attendance: {
+    ganjil: { s: 0, i: 0, a: 0 },
+    genap: { s: 0, i: 0, a: 0 }
+  },
+  extracurricularRecord: {
+    ganjil: [],
+    genap: []
+  },
   grades: {
-    ganjil: JSON.parse(JSON.stringify(emptySemester)), // Deep copy
-    genap: JSON.parse(JSON.stringify(emptySemester)), // Deep copy
+    ganjil: JSON.parse(JSON.stringify(emptySemester)), 
+    genap: JSON.parse(JSON.stringify(emptySemester)), 
   }
 });
 
 // Helper for teachers
-const t = (no: number, name: string, nip: string, subject: string, classes: string[]): Teacher => ({
+const t = (no: number, name: string, nip: string, subject: string, classes: string[], waliKelas?: string): Teacher => ({
   id: Date.now() + Math.random(),
   no,
   name,
   nip,
   subject,
-  classes
+  classes,
+  waliKelas
 });
 
 export const initialTeachers: Teacher[] = [
   t(1, "Dra. Sri Hayati", "19670628 200801 2 006", "Bahasa Indonesia", ["IX A", "IX B", "IX C"]),
   t(2, "Bakhtiar Rifai, SE", "19800304 200801 1", "Ilmu Pengetahuan Sosial", ["VIII A", "VIII B", "VIII C"]),
   t(3, "Moch. Husain Rifai Hamzah, S.Pd.", "19920316 202012 1 011", "Penjas Orkes", ["VII A", "VII B", "VII C", "VIII A", "VIII B", "VIII C", "IX A", "IX B", "IX C"]),
-  t(4, "Rudi Hermawan, S.Pd.I", "198910292020121003", "Pendidikan Agama Islam", ["VII A", "VII B", "VII C", "VIII A", "VIII B", "VIII C", "IX A", "IX B", "IX C"]),
+  t(4, "Rudi Hermawan, S.Pd.I", "198910292020121003", "Pendidikan Agama Islam", ["VII A", "VII B", "VII C", "VIII A", "VIII B", "VIII C", "IX A", "IX B", "IX C"], "VII A"),
   t(5, "Okha Devi Anggraini, S.Pd.", "19941002 202012 2 008", "Bimbingan Konseling", ["VII A", "VII B", "VII C", "IX A", "IX B", "IX C"]),
   t(6, "Eka Hariyati, S. Pd.", "19731129 202421 2 003", "PPKn", ["VII A", "VII B", "VII C", "VIII A", "VIII B", "VIII C", "IX A", "IX B", "IX C"]),
   t(7, "Mikoe Wahyudi Putra, ST., S. Pd.", "198506012024211004", "Bimbingan Konseling", ["VII C", "VIII A", "VIII B"]),
@@ -147,130 +157,4 @@ export const initialStudents: Student[] = [
   s(75, "1162", "MUHAMMAD NICOLA VERDIANSYAH", "VII C", "L"),
   s(76, "1165", "YUWIETA TRI ANGGREINY", "VII C", "P"),
   s(77, "1168", "ZAFAR SIDIQ", "VII C", "L"),
-
-  // IX C
-  s(78, "1172", "MIFTAKHUL DWIYANTI", "IX C", "P"),
-  s(79, "1174", "MOHKAMAT SLAMET PRASETIO", "IX C", "L"),
-  s(80, "1177", "MUHAMAD THORIQ SHOLIKHUL ULAH", "IX C", "L"),
-  s(81, "1180", "MUHAMMAD BAGUS DWI SETIAWAN", "IX C", "L"),
-  s(82, "1187", "MUHAMMAD SYAHLAN AL FARISI", "IX C", "L"),
-  s(83, "1188", "MUHAMMAD SYAIFUDDIN ZUHRI", "IX C", "L"),
-  s(84, "1189", "MUKHAMMAD NAFIS  ZANWAR", "IX C", "L"),
-  s(85, "1192", "PUTRA FAIZ ABILANSA", "IX C", "L"),
-  s(86, "1194", "RAKA ZA ARKAN AL YAHYA", "IX C", "L"),
-  s(87, "1198", "RIZKY DWI PRASETYA", "IX C", "L"),
-  s(88, "1200", "SAHAZIKA GISTIANO MAISEGALUNG", "IX C", "P"),
-  s(89, "1201", "SALSABILA AMELIA PUTRI", "IX C", "P"),
-  s(90, "1326", "ACHMAD SAIFUL ANWAR", "IX C", "L"),
-
-  // VIII A
-  s(91, "1219", "ACHMAD KIESHA RIZQI ANDIKA", "VIII A", "L"),
-  s(92, "1224", "ALANSKY VANI ARIEFKY PUTRA", "VIII A", "L"),
-  s(93, "1227", "ALMIRAH YUNITA", "VIII A", "P"),
-  s(94, "1229", "ANA NAYLA SALSABILLA", "VIII A", "P"),
-  s(95, "1231", "ARIYA FERDIANSA", "VIII A", "L"),
-  s(96, "1232", "ASIFA AMELIA PUTRI", "VIII A", "P"),
-  s(97, "1233", "ASMIAR AFIQOH RACHMADHANI", "VIII A", "P"),
-  s(98, "1234", "AURA MIFVATUL PUTRI", "VIII A", "P"),
-  s(99, "1235", "AVELIYAN AGHIL EDDYANZA", "VIII A", "L"),
-  s(100, "1251", "IMELDA NAJWA AYU KUMALASARI", "VIII A", "P"),
-  s(101, "1252", "INDRA BAGUS SAPUTRA", "VIII A", "L"),
-  s(102, "1255", "JESICA APRILIA AYUNENGTIAS", "VIII A", "P"),
-  s(103, "1267", "MOCH DEVAN SAPUTRA", "VIII A", "L"),
-  s(104, "1270", "MOHAMMAD DAFFA", "VIII A", "L"),
-  s(105, "1273", "MUH. REVAN RIZKI PRATAMA", "VIII A", "L"),
-  s(106, "1275", "MUHAMMAD BAYU SAPUTRO", "VIII A", "L"),
-  s(107, "1280", "MUHAMMAD NASRUL MUJAQQI", "VIII A", "L"),
-  s(108, "1287", "MUKHAMAD ILYAS RIZKY ABDILLAH", "VIII A", "L"),
-  s(109, "1292", "NADZAR PANDU PRAHASTA", "VIII A", "L"),
-  s(110, "1295", "NAURA CECILYA ANGELYCA", "VIII A", "P"),
-  s(111, "1296", "NAURAH SALSABILA", "VIII A", "L"),
-  s(112, "1298", "NAZWA NATASYA PUTRI", "VIII A", "P"),
-  s(113, "1302", "PUPUT KUMALA SARI", "VIII A", "P"),
-  s(114, "1304", "PUTRI EKA NILASARI", "VIII A", "P"),
-  s(115, "1305", "PUTRI JUWITA SARI", "VIII A", "P"),
-  s(116, "1306", "RAFIQ MAULANA", "VIII A", "L"),
-  s(117, "1308", "REVAND DWI AL DIANO", "VIII A", "L"),
-  s(118, "1309", "RIYADHUL BUKHORI", "VIII A", "L"),
-  s(119, "1259", "KYANO RICKY SAPUTRA", "VIII A", "L"),
-  s(120, "1313", "SERLIYAH CAHYA FITRIANI", "VIII A", "P"),
-  s(121, "1314", "SESILLIA ANGELINA PUTRI", "VIII A", "P"),
-  s(122, "1316", "SHEGA RAMADHANI", "VIII A", "L"),
-  s(123, "1321", "VALENCIA SELLA FENDY SAFIRA", "VIII A", "P"),
-  s(124, "1322", "WAHYU NUR AHMAD SETIO BUDI", "VIII A", "L"),
-  s(125, "1325", "YUSRIEL ADI ALFAREZA", "VIII A", "L"),
-
-  // VIII B
-  s(126, "1218", "ACHMAD DAFFA KURNIAWAN", "VIII B", "L"),
-  s(127, "1220", "AHMAD RAVA MAULANA", "VIII B", "L"),
-  s(128, "1221", "AHMAD YONGKY ROFIKUL A'LA", "VIII B", "L"),
-  s(129, "1223", "AKHMAD RIFKI SAMSUL ANGGORO", "VIII B", "L"),
-  s(130, "1225", "ALDELIA PUTRI ANNUROH", "VIII B", "P"),
-  s(131, "1226", "ALIVIA AZZAHRA", "VIII B", "P"),
-  s(132, "1228", "AMELIA DWI AMANDA SARI", "VIII B", "P"),
-  s(133, "1240", "BISMA PUTRA RAMADHAN", "VIII B", "L"),
-  s(134, "1242", "CINTIA ZIFA PERMATA KIRANA", "VIII B", "P"),
-  s(135, "1244", "DESYIFA ADELIA EKA FIRNANDA", "VIII B", "P"),
-  s(136, "1245", "DEWI AVIKA PUTRI", "VIII B", "P"),
-  s(137, "1248", "DWI KANAYA PUTRI", "VIII B", "P"),
-  s(138, "1249", "FADILLAH AINI KHOMARI", "VIII B", "P"),
-  s(139, "1253", "IVANDER ZAKI ANGGARA", "VIII B", "L"),
-  s(140, "1256", "JULIANA PUTRI", "VIII B", "P"),
-  s(141, "1257", "KELFIN ANDIKA PRATAMA", "VIII B", "L"),
-  s(142, "1260", "KYANOE LUCKY WIJJAYA", "VIII B", "L"),
-  s(143, "1261", "LOEIS ADITYA PUTRA", "VIII B", "L"),
-  s(144, "1268", "MOCHAMAD VICKY WAHYUPI", "VIII B", "L"),
-  s(145, "1269", "MOCHAMMAD FARREL YUSNI TAUFIQURROHMAN", "VIII B", "L"),
-  s(146, "1274", "MUHAMAD AYUBI ANAS", "VIII B", "L"),
-  s(147, "1277", "MUHAMMAD ILHAM SYAFI'I", "VIII B", "L"),
-  s(148, "1283", "MUHAMMAD RENDI ADITYA", "VIII B", "L"),
-  s(149, "1284", "MUHAMMAD REZZA SETYAWAN", "VIII B", "L"),
-  s(150, "1286", "MUHAMMAD YAFIUL HAMZI", "VIII B", "L"),
-  s(151, "1289", "MUKHAMMAD ARYA MAULANA", "VIII B", "L"),
-  s(152, "1294", "NARITA SILVIA DEWI", "VIII B", "P"),
-  s(153, "1297", "NAYLA HIDAYATUN NUFUS", "VIII B", "P"),
-  s(154, "1301", "OKTAVIAN ERGIANSYAH", "VIII B", "L"),
-  s(155, "1311", "RIZKI VERANIKA ANDINA SOLIKHAH", "VIII B", "P"),
-  s(156, "1312", "ROSYIDAH WULANDARI", "VIII B", "P"),
-  s(157, "1320", "TUNGGUL DIAS ARIANSYAH", "VIII B", "L"),
-  s(158, "1323", "WILDA PRATIWI", "VIII B", "P"),
-  s(159, "1324", "WILDHA CHELSEA META OCTAVIA", "VIII B", "P"),
-  s(160, "1329", "ASTI DWI NATHANIA PUTRI", "VIII B", "P"),
-
-  // VIII C
-  s(161, "1222", "AHMAD ZAIYANI WARDANI", "VIII C", "L"),
-  s(162, "1230", "ARIEL SENNA DWI FIRMANSYAH", "VIII C", "L"),
-  s(163, "1236", "AVRILIA EKA RAHMAWATI", "VIII C", "P"),
-  s(164, "1237", "AYU ANDIRA", "VIII C", "P"),
-  s(165, "1238", "AZAM IBI SYEVIK", "VIII C", "L"),
-  s(166, "1239", "AZKA ATALARIC ZACHARI KHALFANI", "VIII C", "L"),
-  s(167, "1241", "CINTA RAHMA ASIYA", "VIII C", "P"),
-  s(168, "1243", "DAUD ATHOURROHMAN KAMAL", "VIII C", "L"),
-  s(169, "1246", "DINI OLIVIA PUTRI", "VIII C", "P"),
-  s(170, "1247", "DIO ARSYAH MAULANA", "VIII C", "L"),
-  s(171, "1250", "FERLIN ELSA HAVIVA", "VIII C", "P"),
-  s(172, "1254", "JANITA KAMILA ZAMAN", "VIII C", "P"),
-  s(173, "1327", "JESLYN SHAILA LEXIA AMORA", "VIII C", "P"),
-  s(174, "1258", "KYANNO RENDRA BUDI PRATAMA", "VIII C", "L"),
-  s(175, "1262", "LUTVI RASYA RAMADHAN", "VIII C", "L"),
-  s(176, "1263", "MAHFIDHO ZAKIYATUS SHAFA", "VIII C", "P"),
-  s(177, "1264", "MARCELLINO MAULANA MAZBULLAH", "VIII C", "L"),
-  s(178, "1265", "MARTHA DWI TARADILA", "VIII C", "P"),
-  s(179, "1266", "MIFTAKHUL JANAH", "VIII C", "P"),
-  s(180, "1271", "MOHAMMAD DAVID ALFIANSYAH", "VIII C", "L"),
-  s(181, "1276", "MUHAMMAD FAIS ILHAM", "VIII C", "L"),
-  s(182, "1278", "MUHAMMAD IQBAL ALIE MUZAKI", "VIII C", "L"),
-  s(183, "1279", "MUHAMMAD KHADID ANWARY", "VIII C", "L"),
-  s(184, "1281", "MUHAMMAD NASYA PRADIPTA OKTAFA", "VIII C", "L"),
-  s(185, "1285", "MUHAMMAD WAHYU RAMDHANI", "VIII C", "L"),
-  s(186, "1288", "MUKHAMAT FAHRUL", "VIII C", "L"),
-  s(187, "1290", "MUKHAMMAD RIZKY WANDIAN SYAH", "VIII C", "L"),
-  s(188, "1291", "NADYA LOVITA PUTRI", "VIII C", "P"),
-  s(189, "1293", "NAFISHATUL MUFIDAH", "VIII C", "P"),
-  s(190, "1290", "NERLITA ADELIA PUTRI", "VIII C", "P"),
-  s(191, "1300", "NOVALUNA ADINDA PUTRI", "VIII C", "P"),
-  s(192, "1307", "RENO AIDHIL ELMAWANTO", "VIII C", "L"),
-  s(193, "1310", "RIYO FAFA ALAMSYAH", "VIII C", "L"),
-  s(194, "1317", "SILVI ADELLYA ANDINI", "VIII C", "P"),
-  s(195, "1319", "TEGAR HENDY RISWANTO", "VIII C", "L"),
 ];

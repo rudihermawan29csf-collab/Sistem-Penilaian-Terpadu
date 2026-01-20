@@ -14,6 +14,7 @@ export const createEmptySemesterData = (): SemesterData => {
     bab5: { ...emptyChapter },
     kts: null,
     sas: null,
+    nilaiUp: null, // Initialize new field
   };
 };
 
@@ -47,11 +48,10 @@ export const calculateChapterAverage = (grades: ChapterGrades, activeFields: For
 export const calculateFinalGrade = (
   semesterData: SemesterData, 
   activeFieldsMap: Record<ChapterKey, FormativeKey[]>,
-  visibleChapters?: Record<ChapterKey, boolean> // Added optional parameter
+  visibleChapters?: Record<ChapterKey, boolean>
 ): number | null => {
   const allChapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
   
-  // Filter chapters based on visibility config if provided
   const chaptersToCalculate = visibleChapters 
     ? allChapters.filter(c => visibleChapters[c]) 
     : allChapters;
@@ -61,26 +61,33 @@ export const calculateFinalGrade = (
 
   // 1. Process Chapters Averages
   chaptersToCalculate.forEach(chap => {
-    // Use the pre-calculated active fields for this chapter
     const activeFields = activeFieldsMap[chap];
     const avg = calculateChapterAverage(semesterData[chap], activeFields);
     
-    // Only include chapter in final grade if it has an average (i.e. has active fields) OR if it is explicitly visible and treated as 0 (optional logic, sticking to existing behavior of ignoring nulls)
     if (avg !== null) {
       total += avg;
       count++;
     }
   });
 
-  // 2. Process KTS (formerly STS)
-  // Always count KTS as a component. Treat null as 0 for sum.
+  // 2. Process KTS
   total += (semesterData.kts || 0);
   count++;
 
   // 3. Process SAS
-  // Always count SAS as a component. Treat null as 0 for sum.
   total += (semesterData.sas || 0);
   count++;
+
+  // 4. Process Nilai UP (Optional - usually depends on school policy if UP is part of NA or separate)
+  // For this implementation, we keep UP separate as per typical 'Nilai Praktik' vs 'Nilai Pengetahuan' split,
+  // unless requested to merge. The prompt implies separate column display.
+  // Uncomment below if UP should be part of Final Grade (NA)
+  /*
+  if (semesterData.nilaiUp !== null) {
+      total += semesterData.nilaiUp;
+      count++;
+  }
+  */
 
   if (count === 0) return null;
   

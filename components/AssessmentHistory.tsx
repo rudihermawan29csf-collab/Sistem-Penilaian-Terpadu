@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Trash2, Edit2, AlertCircle, RotateCcw } from 'lucide-react';
 import { GradingSession, SemesterKey } from '../types';
@@ -23,9 +24,9 @@ const AssessmentHistory: React.FC<AssessmentHistoryProps> = ({
   const formatTarget = (session: GradingSession) => {
     if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
       const babNum = parseInt(session.chapterKey.replace('bab', ''));
-      const displayBab = currentSemester === 'genap' ? babNum + 5 : babNum;
+      const displayBab = babNum;
       const field = session.formativeKey === 'sum' ? 'SUMATIF' : session.formativeKey.toUpperCase();
-      return `Bab ${displayBab} - ${field}`;
+      return `TP ${displayBab} - ${field}`;
     }
     return session.type.toUpperCase();
   };

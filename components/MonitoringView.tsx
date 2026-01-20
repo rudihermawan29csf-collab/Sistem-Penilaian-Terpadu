@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Student, GradingSession, SemesterKey } from '../types';
 import { ChevronRight, Calendar, AlertCircle, RefreshCw, BookOpen, Download, User, Layers, Hash, Clock } from 'lucide-react';
@@ -89,7 +90,7 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
   const getTaskName = (session: GradingSession) => {
     if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
         const babNum = parseInt(session.chapterKey.replace('bab', ''));
-        const displayBab = currentSemester === 'genap' ? babNum + 5 : babNum;
+        const displayBab = babNum;
         return `Bab ${displayBab} - ${session.formativeKey === 'sum' ? 'Sumatif' : session.formativeKey.toUpperCase()}`;
     }
     return session.type.toUpperCase();

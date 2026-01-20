@@ -21,6 +21,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
 }) => {
   const [formData, setFormData] = useState({
     nis: '',
+    nisn: '',
     name: '',
     kelas: '',
     gender: 'L' as 'L' | 'P'
@@ -31,6 +32,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
       if (initialData) {
         setFormData({
           nis: initialData.nis,
+          nisn: initialData.nisn || '',
           name: initialData.name,
           kelas: initialData.kelas,
           gender: initialData.gender
@@ -38,6 +40,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
       } else {
         setFormData({
           nis: '',
+          nisn: '',
           name: '',
           kelas: existingClasses.length > 0 ? existingClasses[0] : '',
           gender: 'L'
@@ -56,6 +59,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
       id: initialData ? initialData.id : Date.now(),
       no: initialData ? initialData.no : 0, // No handled by parent usually
       nis: formData.nis,
+      nisn: formData.nisn,
       name: formData.name,
       kelas: formData.kelas.toUpperCase(),
       gender: formData.gender,
@@ -63,7 +67,15 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
         ganjil: createEmptySemesterData(),
         genap: createEmptySemesterData(),
       },
-      gradesBySubject: initialData ? initialData.gradesBySubject : {}
+      gradesBySubject: initialData ? initialData.gradesBySubject : {},
+      attendance: initialData ? initialData.attendance : {
+        ganjil: { s: 0, i: 0, a: 0 },
+        genap: { s: 0, i: 0, a: 0 }
+      },
+      extracurricularRecord: initialData ? initialData.extracurricularRecord : {
+        ganjil: [],
+        genap: []
+      }
     };
 
     onSave(student);
@@ -110,17 +122,53 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Jenis Kelamin
+                NISN
               </label>
-              <select
-                value={formData.gender}
-                onChange={(e) => setFormData({...formData, gender: e.target.value as 'L' | 'P'})}
+              <input 
+                type="text" 
+                value={formData.nisn} 
+                onChange={(e) => setFormData({...formData, nisn: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
-              >
-                <option value="L">Laki-laki</option>
-                <option value="P">Perempuan</option>
-              </select>
+                placeholder="00xxxx"
+              />
             </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+             <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                Kelas
+                </label>
+                <div className="relative">
+                    <input
+                        type="text"
+                        required
+                        list="classList"
+                        value={formData.kelas}
+                        onChange={(e) => setFormData({...formData, kelas: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm uppercase"
+                        placeholder="Contoh: VII A"
+                    />
+                    <datalist id="classList">
+                        {existingClasses.map(cls => (
+                            <option key={cls} value={cls} />
+                        ))}
+                    </datalist>
+                </div>
+             </div>
+             <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Gender
+                </label>
+                <select
+                    value={formData.gender}
+                    onChange={(e) => setFormData({...formData, gender: e.target.value as 'L' | 'P'})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm"
+                >
+                    <option value="L">Laki</option>
+                    <option value="P">Pr</option>
+                </select>
+             </div>
           </div>
 
           <div>
@@ -135,29 +183,6 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({
               value={formData.name}
               onChange={(e) => setFormData({...formData, name: e.target.value})}
             />
-          </div>
-
-          <div>
-             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Kelas
-            </label>
-             <div className="relative">
-                <input
-                    type="text"
-                    required
-                    list="classList"
-                    value={formData.kelas}
-                    onChange={(e) => setFormData({...formData, kelas: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm uppercase"
-                    placeholder="Contoh: VII A"
-                />
-                <datalist id="classList">
-                    {existingClasses.map(cls => (
-                        <option key={cls} value={cls} />
-                    ))}
-                </datalist>
-             </div>
-             <p className="text-xs text-gray-500 mt-1">Ketik kelas baru atau pilih dari daftar.</p>
           </div>
 
           <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100 mt-4">

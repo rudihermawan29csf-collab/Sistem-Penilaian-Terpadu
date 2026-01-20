@@ -2,17 +2,19 @@
 import React, { useState } from 'react';
 import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession } from '../types';
 import { calculateChapterAverage, calculateFinalGrade, formatNumber } from '../utils';
-import { Info, X, Calendar, FileText, Tag, BookOpen } from 'lucide-react';
+import { Info, X, Calendar, FileText, Tag, BookOpen, Star } from 'lucide-react';
 
 interface GradeTableProps {
   students: Student[];
   selectedSemester: SemesterKey;
   activeFieldsMap: Record<ChapterKey, FormativeKey[]>;
   visibleChapters: Record<ChapterKey, boolean>;
+  visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>; // New Prop
   assessmentHistory: GradingSession[];
   academicYear: string;
-  onUpdateScore: (id: number, chapter: ChapterKey | 'kts' | 'sas', field: FormativeKey | null, value: number | null) => void;
+  onUpdateScore: (id: number, chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null, value: number | null) => void;
   isEditable: boolean;
+  showUpColumn?: boolean; // If true, enables UP column AND triggers compact mode
 }
 
 const GradeTable: React.FC<GradeTableProps> = ({
@@ -20,34 +22,31 @@ const GradeTable: React.FC<GradeTableProps> = ({
   selectedSemester,
   activeFieldsMap,
   visibleChapters,
+  visibleFields,
   assessmentHistory,
   academicYear,
   onUpdateScore,
-  isEditable
+  isEditable,
+  showUpColumn = false
 }) => {
-  // State for popover details
   const [selectedSession, setSelectedSession] = useState<GradingSession | null>(null);
 
   const allChapters: { key: ChapterKey; label: string }[] = [
-    { key: 'bab1', label: selectedSemester === 'genap' ? 'Bab 6' : 'Bab 1' },
-    { key: 'bab2', label: selectedSemester === 'genap' ? 'Bab 7' : 'Bab 2' },
-    { key: 'bab3', label: selectedSemester === 'genap' ? 'Bab 8' : 'Bab 3' },
-    { key: 'bab4', label: selectedSemester === 'genap' ? 'Bab 9' : 'Bab 4' },
-    { key: 'bab5', label: selectedSemester === 'genap' ? 'Bab 10' : 'Bab 5' },
+    { key: 'bab1', label: 'TP 1' },
+    { key: 'bab2', label: 'TP 2' },
+    { key: 'bab3', label: 'TP 3' },
+    { key: 'bab4', label: 'TP 4' },
+    { key: 'bab5', label: 'TP 5' },
   ];
 
-  // Filter visible chapters
   const chapters = allChapters.filter(c => visibleChapters[c.key]);
-
-  // Standard fields that must always appear
   const standardFields: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
 
-  // Helper to check if a specific cell is "active" (part of history) for editing context
-  const isCellActive = (chapter: ChapterKey | 'kts' | 'sas', field: FormativeKey | null) => {
-    // If not editable (admin view), always show value as readonly
+  const isCellActive = (chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null) => {
     if (!isEditable) return false;
+    // Nilai UP is always active if the column is shown
+    if (chapter === 'up') return true; 
 
-    // Check if this specific column/field exists in assessmentHistory for this class/semester
     return assessmentHistory.some(h => {
         if (h.type === 'bab') return h.chapterKey === chapter && h.formativeKey === field;
         if (h.type === 'kts') return chapter === 'kts';
@@ -56,7 +55,6 @@ const GradeTable: React.FC<GradeTableProps> = ({
     });
   };
 
-  // Helper to find session data for a header
   const getSessionForHeader = (chapter: ChapterKey | 'kts' | 'sas', field: FormativeKey | null) => {
       return assessmentHistory.find(h => {
         if (h.type === 'bab') return h.chapterKey === chapter && h.formativeKey === field;
@@ -66,298 +64,179 @@ const GradeTable: React.FC<GradeTableProps> = ({
       });
   };
 
-  // Helper to determine input color class based on value
   const getScoreInputClass = (val: number | null) => {
     const baseClass = "w-full text-center py-1.5 text-sm font-medium focus:outline-none rounded transition-all placeholder-gray-300";
-    
-    if (val === null) {
-        return `${baseClass} bg-white text-gray-800 focus:bg-blue-50`;
-    }
-    if (val >= 85) {
-        return `${baseClass} bg-green-100 text-green-800 focus:bg-green-200 font-semibold`;
-    }
-    if (val >= 70) {
-        return `${baseClass} bg-yellow-100 text-yellow-800 focus:bg-yellow-200 font-semibold`;
-    }
-    // 0 - 69
+    if (val === null) return `${baseClass} bg-white text-gray-800 focus:bg-blue-50`;
+    if (val >= 85) return `${baseClass} bg-green-100 text-green-800 focus:bg-green-200 font-semibold`;
+    if (val >= 70) return `${baseClass} bg-yellow-100 text-yellow-800 focus:bg-yellow-200 font-semibold`;
     return `${baseClass} bg-red-100 text-red-800 focus:bg-red-200 font-semibold`;
   };
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement>, 
     studentId: number, 
-    chapter: ChapterKey | 'kts' | 'sas', 
+    chapter: ChapterKey | 'kts' | 'sas' | 'up', 
     field: FormativeKey | null
   ) => {
     const val = e.target.value;
     const numVal = val === '' ? null : parseFloat(val);
-    if (numVal !== null && (numVal < 0 || numVal > 100)) return; // Basic validation
+    if (numVal !== null && (numVal < 0 || numVal > 100)) return;
     onUpdateScore(studentId, chapter, field, numVal);
+  };
+
+  // Determine active fields for a chapter (merged logic from history + config)
+  const getFieldsForChapter = (chapKey: ChapterKey) => {
+      if (showUpColumn) return standardFields; // In UP mode, maybe standard, but layout is compact anyway
+
+      // If configuration exists, respect it strictly
+      if (visibleFields && visibleFields[chapKey]) {
+          return standardFields.filter(f => visibleFields[chapKey][f]);
+      }
+      
+      // Fallback: If no config, maybe use all standard fields?
+      // Or fallback to activeFieldsMap if you want to only show what has data?
+      // For now, let's show all standard fields if no config is present to allow input.
+      return standardFields;
   };
 
   return (
     <div className="bg-white flex flex-col relative">
-      {/* Detail Popover Modal */}
+      {/* Detail Popover */}
       {selectedSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm" onClick={() => setSelectedSession(null)}>
             <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-scale-in border border-gray-100" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-start mb-4">
                     <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-                        <Info size={20} className="text-blue-600" />
-                        Detail Penilaian
+                        <Info size={20} className="text-blue-600" /> Detail Penilaian
                     </h3>
-                    <button onClick={() => setSelectedSession(null)} className="text-gray-400 hover:text-gray-600">
-                        <X size={20} />
-                    </button>
+                    <button onClick={() => setSelectedSession(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
-                
-                <div className="space-y-3">
-                    <div className="flex items-start gap-3">
-                        <BookOpen size={16} className="text-gray-400 mt-0.5" />
-                        <div>
-                            <p className="text-xs font-bold text-gray-500 uppercase">Target</p>
-                            <p className="text-sm font-medium text-gray-800">
-                                {selectedSession.type === 'bab' 
-                                    ? `${selectedSession.chapterKey?.toUpperCase()} - ${selectedSession.formativeKey === 'sum' ? 'SUMATIF' : selectedSession.formativeKey?.toUpperCase()}`
-                                    : selectedSession.type.toUpperCase()
-                                }
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                        <Calendar size={16} className="text-gray-400 mt-0.5" />
-                        <div>
-                            <p className="text-xs font-bold text-gray-500 uppercase">Tanggal Input</p>
-                            <p className="text-sm font-medium text-gray-800">{selectedSession.date}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                        <FileText size={16} className="text-gray-400 mt-0.5" />
-                        <div>
-                            <p className="text-xs font-bold text-gray-500 uppercase">Keterangan</p>
-                            <p className="text-sm font-medium text-gray-800">{selectedSession.description}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                        <Tag size={16} className="text-gray-400 mt-0.5" />
-                        <div>
-                            <p className="text-xs font-bold text-gray-500 uppercase">Kelas Target</p>
-                            <p className="text-sm font-medium text-gray-800">{selectedSession.targetClass}</p>
-                        </div>
-                    </div>
+                <div className="space-y-3 text-sm">
+                    <p><strong>Target:</strong> {selectedSession.type === 'bab' ? `${selectedSession.chapterKey?.replace('bab', 'TP ')} - ${selectedSession.formativeKey?.toUpperCase()}` : selectedSession.type.toUpperCase()}</p>
+                    <p><strong>Tanggal:</strong> {selectedSession.date}</p>
+                    <p><strong>Ket:</strong> {selectedSession.description}</p>
                 </div>
-                
                 <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end">
-                    <button 
-                        onClick={() => setSelectedSession(null)}
-                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
-                    >
-                        Tutup
-                    </button>
+                    <button onClick={() => setSelectedSession(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg">Tutup</button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* Table Container */}
+      {/* Table */}
       <div className="overflow-x-auto custom-scrollbar relative">
         <table className="border-collapse w-full min-w-max">
           <thead className="sticky top-0 z-20 bg-[#f9f9fb] shadow-sm">
-            {/* Header Row 1: Groupings */}
             <tr>
-              <th rowSpan={2} className="p-3 w-12 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                No
-              </th>
-              <th rowSpan={2} className="p-3 w-32 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase">
-                NIS
-              </th>
-              <th rowSpan={2} className="p-3 min-w-[200px] border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase text-left">
-                Nama Siswa
-              </th>
+              <th rowSpan={2} className="p-3 w-12 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase sticky left-0 z-30">No</th>
+              <th rowSpan={2} className="p-3 w-32 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase">NIS</th>
+              <th rowSpan={2} className="p-3 min-w-[200px] border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase text-left">Nama Siswa</th>
               
-              {chapters.map(chap => (
-                <th key={chap.key} colSpan={7} className="p-2 border-b border-r border-gray-300 bg-blue-50 text-xs font-bold text-blue-700 uppercase text-center">
-                    {chap.label}
-                </th>
-              ))}
+              {chapters.map(chap => {
+                  const fieldsToShow = getFieldsForChapter(chap.key);
+                  // Colspan is fields length + 1 (for Rerata)
+                  const colSpan = showUpColumn ? 1 : (fieldsToShow.length + 1);
+                  return (
+                    <th key={chap.key} colSpan={colSpan} className="p-2 border-b border-r border-gray-300 bg-blue-50 text-xs font-bold text-blue-700 uppercase text-center">{chap.label}</th>
+                  );
+              })}
               
-              <th colSpan={3} className="p-2 border-b border-gray-300 bg-purple-50 text-xs font-bold text-purple-700 uppercase text-center">
-                 Evaluasi Akhir
-              </th>
+              <th colSpan={3} className="p-2 border-b border-gray-300 bg-purple-50 text-xs font-bold text-purple-700 uppercase text-center">Evaluasi Akhir</th>
+              
+              {/* UP Column Header Group */}
+              {showUpColumn && (
+                  <th rowSpan={2} className="p-2 border-b border-gray-300 bg-orange-50 text-xs font-bold text-orange-700 uppercase text-center w-24 sticky right-0 z-30 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                      <div className="flex flex-col items-center gap-1">
+                          <Star size={14} />
+                          Nilai UP
+                      </div>
+                  </th>
+              )}
             </tr>
             
-            {/* Header Row 2: Columns (F1..F5, Sum, Avg, KTS, SAS, NA) */}
             <tr>
-               {chapters.map(chap => (
+               {chapters.map(chap => {
+                  const fieldsToShow = getFieldsForChapter(chap.key);
+                  return (
                   <React.Fragment key={chap.key}>
-                     {standardFields.map(f => {
+                     {!showUpColumn && fieldsToShow.map(f => {
                         const session = getSessionForHeader(chap.key, f);
-                        const hasSession = !!session;
                         return (
-                           <th 
-                                key={f} 
-                                onClick={() => hasSession && setSelectedSession(session)}
-                                className={`p-2 w-12 border-b border-r border-gray-200 text-[10px] font-semibold text-gray-600 uppercase text-center transition-colors ${
-                                    hasSession ? 'bg-blue-100/80 cursor-pointer hover:bg-blue-200 text-blue-800 border-blue-200' : 'bg-blue-50/50'
-                                }`}
-                                title={hasSession ? "Klik untuk lihat detail" : "Belum ada input"}
-                           >
-                              <div className="flex items-center justify-center gap-0.5">
-                                {f === 'sum' ? 'S' : f.toUpperCase()}
-                                {hasSession && <Info size={8} />}
-                              </div>
+                           <th key={f} onClick={() => session && setSelectedSession(session)} className={`p-2 w-12 border-b border-r border-gray-200 text-[10px] font-semibold text-gray-600 uppercase text-center ${session ? 'bg-blue-100/80 cursor-pointer text-blue-800' : 'bg-blue-50/50'}`}>
+                              {f === 'sum' ? 'S' : f.toUpperCase()}
                            </th>
                         );
                      })}
-                     {/* Average Column */}
-                     <th className="p-2 w-12 border-b border-r border-gray-300 bg-blue-100/50 text-[10px] font-bold text-blue-800 uppercase text-center">
-                        R
-                     </th>
+                     <th className="p-2 w-12 border-b border-r border-gray-300 bg-blue-100/50 text-[10px] font-bold text-blue-800 uppercase text-center">R</th>
                   </React.Fragment>
-               ))}
+               )})}
                
-               {/* KTS Header */}
-               {(() => {
-                   const session = getSessionForHeader('kts', null);
-                   const hasSession = !!session;
-                   return (
-                       <th 
-                            onClick={() => hasSession && setSelectedSession(session)}
-                            className={`p-2 w-16 border-b border-r border-gray-200 text-[10px] font-semibold uppercase text-center transition-colors ${
-                                hasSession ? 'bg-purple-100/80 cursor-pointer hover:bg-purple-200 text-purple-800' : 'bg-purple-50/50 text-gray-600'
-                            }`}
-                       >
-                           <div className="flex items-center justify-center gap-0.5">
-                                KTS
-                                {hasSession && <Info size={8} />}
-                           </div>
-                       </th>
-                   );
-               })()}
-
-               {/* SAS Header */}
-               {(() => {
-                   const session = getSessionForHeader('sas', null);
-                   const hasSession = !!session;
-                   return (
-                       <th 
-                            onClick={() => hasSession && setSelectedSession(session)}
-                            className={`p-2 w-16 border-b border-r border-gray-200 text-[10px] font-semibold uppercase text-center transition-colors ${
-                                hasSession ? 'bg-purple-100/80 cursor-pointer hover:bg-purple-200 text-purple-800' : 'bg-purple-50/50 text-gray-600'
-                            }`}
-                       >
-                           <div className="flex items-center justify-center gap-0.5">
-                                SAS
-                                {hasSession && <Info size={8} />}
-                           </div>
-                       </th>
-                   );
-               })()}
-
-               <th className="p-2 w-16 border-b border-gray-300 bg-purple-100/50 text-[10px] font-bold text-purple-800 uppercase text-center sticky right-0 z-30 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">NA</th>
+               {/* KTS & SAS Headers */}
+               <th className={`p-2 w-16 border-b border-r border-gray-200 text-[10px] font-semibold uppercase text-center ${getSessionForHeader('kts', null) ? 'bg-purple-100/80 text-purple-800' : 'bg-purple-50/50 text-gray-600'}`}>KTS</th>
+               <th className={`p-2 w-16 border-b border-r border-gray-200 text-[10px] font-semibold uppercase text-center ${getSessionForHeader('sas', null) ? 'bg-purple-100/80 text-purple-800' : 'bg-purple-50/50 text-gray-600'}`}>SAS</th>
+               <th className={`p-2 w-16 border-b border-gray-300 bg-purple-100/50 text-[10px] font-bold text-purple-800 uppercase text-center ${!showUpColumn ? 'sticky right-0 z-30 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]' : ''}`}>NA</th>
             </tr>
           </thead>
           
           <tbody className="divide-y divide-gray-200 bg-white">
-             {students.length === 0 ? (
-                 <tr>
-                     <td colSpan={100} className="text-center py-20 text-gray-400 italic">
-                        <div className="flex flex-col items-center justify-center">
-                            <Info size={32} className="mb-2 opacity-50" />
-                            <span>Belum ada data siswa di kelas ini.</span>
-                            <span className="text-xs mt-1">Silakan tambah siswa melalui menu Data Siswa (Admin).</span>
-                        </div>
-                     </td>
-                 </tr>
-             ) : (
-                students.map((student, index) => {
-                    const semesterData = student.grades[selectedSemester];
-                    const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
-                    
-                    return (
-                        <tr key={student.id} className="hover:bg-blue-50/20 transition-colors group">
-                           {/* Static Info - Only Index is sticky now */}
-                           <td className="p-3 text-center text-sm text-gray-500 font-medium sticky left-0 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                              {index + 1}
-                           </td>
-                           <td className="p-3 text-sm font-mono text-gray-600 border-r border-gray-200">
-                              {student.nis}
-                           </td>
-                           <td className="p-3 text-sm font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap overflow-hidden text-ellipsis max-w-[250px]" title={student.name}>
-                              {student.name}
-                           </td>
+             {students.map((student, index) => {
+                const semesterData = student.grades[selectedSemester];
+                const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
+                return (
+                    <tr key={student.id} className="hover:bg-blue-50/20 transition-colors group">
+                       <td className="p-3 text-center text-sm text-gray-500 font-medium sticky left-0 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10">{index + 1}</td>
+                       <td className="p-3 text-sm font-mono text-gray-600 border-r border-gray-200">{student.nis}</td>
+                       <td className="p-3 text-sm font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap">{student.name}</td>
 
-                           {/* Dynamic Chapters */}
-                           {chapters.map(chap => {
-                               // Calculate Average based on ACTIVE fields (from props), not just standard fields
-                               // This ensures average is correct even if we display empty columns
-                               const activeFieldsForAvg = activeFieldsMap[chap.key] || [];
-                               const chapterData = semesterData[chap.key];
-                               const avg = calculateChapterAverage(chapterData, activeFieldsForAvg); 
+                       {chapters.map(chap => {
+                           const fieldsToShow = getFieldsForChapter(chap.key);
+                           return (
+                           <React.Fragment key={chap.key}>
+                               {!showUpColumn && fieldsToShow.map(f => (
+                                   <td key={f} className={`p-1 border-r border-gray-100 text-center ${!isCellActive(chap.key, f) ? 'bg-gray-50/30' : ''}`}>
+                                       {isCellActive(chap.key, f) ? (
+                                           <input type="number" value={semesterData[chap.key][f] ?? ''} onChange={(e) => handleInputChange(e, student.id, chap.key, f)} className={getScoreInputClass(semesterData[chap.key][f])} placeholder="-" />
+                                       ) : <span className="text-sm text-gray-300 py-1.5 block">{semesterData[chap.key][f] ?? '-'}</span>}
+                                   </td>
+                               ))}
+                               <td className="p-2 border-r border-gray-200 text-center bg-blue-50/10 font-bold text-blue-700 text-xs">
+                                  {calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []) ?? '-'}
+                               </td>
+                           </React.Fragment>
+                       )})}
+                       
+                       {/* KTS & SAS */}
+                       <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('kts', null) && !showUpColumn ? 'bg-gray-50/30' : ''}`}>
+                            {/* In UP Mode, allow Read-only or small view, here we reuse logic but if UP mode maybe read only? Request said 'menampilkan'. Assuming editable is handled by parent */}
+                            {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, student.id, 'kts', null)} className={getScoreInputClass(semesterData.kts)} placeholder="-" /> : <span className="text-sm text-gray-600 font-semibold">{semesterData.kts ?? '-'}</span>}
+                       </td>
+                       <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('sas', null) && !showUpColumn ? 'bg-gray-50/30' : ''}`}>
+                            {isCellActive('sas', null) && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, student.id, 'sas', null)} className={getScoreInputClass(semesterData.sas)} placeholder="-" /> : <span className="text-sm text-gray-600 font-semibold">{semesterData.sas ?? '-'}</span>}
+                       </td>
+                       
+                       {/* NA */}
+                       <td className={`p-2 border-l border-gray-200 text-center font-bold text-purple-700 text-sm bg-purple-50/20 ${!showUpColumn ? 'sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-white' : ''}`}>
+                            {finalGrade ?? '-'}
+                       </td>
 
-                               return (
-                                   <React.Fragment key={chap.key}>
-                                       {standardFields.map(f => {
-                                           const isActive = isCellActive(chap.key, f);
-                                           const val = chapterData[f];
-                                           return (
-                                               <td key={f} className={`p-1 border-r border-gray-100 text-center ${!isActive ? 'bg-gray-50/30' : ''}`}>
-                                                   {isActive ? (
-                                                       <input 
-                                                          type="number" 
-                                                          value={val ?? ''}
-                                                          onChange={(e) => handleInputChange(e, student.id, chap.key, f)}
-                                                          className={getScoreInputClass(val)}
-                                                          placeholder="-"
-                                                       />
-                                                   ) : (
-                                                       <span className="text-sm text-gray-300 block py-1.5 select-none">{val ?? '-'}</span>
-                                                   )}
-                                               </td>
-                                           );
-                                       })}
-                                       {/* Average Cell */}
-                                       <td className="p-2 border-r border-gray-200 text-center bg-blue-50/10 font-bold text-blue-700 text-xs">
-                                          {avg !== null ? avg : '-'}
-                                       </td>
-                                   </React.Fragment>
-                               );
-                           })}
-                           
-                           {/* Evaluation Columns */}
-                           <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('kts', null) ? 'bg-gray-50/30' : ''}`}>
-                                {isCellActive('kts', null) ? (
-                                    <input 
-                                        type="number" 
-                                        value={semesterData.kts ?? ''}
-                                        onChange={(e) => handleInputChange(e, student.id, 'kts', null)}
-                                        className={getScoreInputClass(semesterData.kts)}
-                                        placeholder="-"
-                                    />
-                                ) : (
-                                    <span className="text-sm text-gray-300 block py-1.5 select-none">{semesterData.kts ?? '-'}</span>
-                                )}
+                       {/* UP Column (Editable Always if shown) */}
+                       {showUpColumn && (
+                           <td className="p-1 border-l border-gray-300 text-center bg-orange-50/30 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-white group-hover:bg-orange-50/30">
+                                <input 
+                                    type="number" 
+                                    value={semesterData.nilaiUp ?? ''} 
+                                    onChange={(e) => handleInputChange(e, student.id, 'up', null)}
+                                    className={`w-full text-center py-1.5 text-sm font-bold focus:outline-none rounded transition-all placeholder-gray-300 ${
+                                        semesterData.nilaiUp !== null ? 'bg-orange-100 text-orange-800' : 'bg-transparent text-gray-800'
+                                    }`}
+                                    placeholder="-" 
+                                    disabled={!isEditable}
+                                />
                            </td>
-                           <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('sas', null) ? 'bg-gray-50/30' : ''}`}>
-                                {isCellActive('sas', null) ? (
-                                    <input 
-                                        type="number" 
-                                        value={semesterData.sas ?? ''}
-                                        onChange={(e) => handleInputChange(e, student.id, 'sas', null)}
-                                        className={getScoreInputClass(semesterData.sas)}
-                                        placeholder="-"
-                                    />
-                                ) : (
-                                    <span className="text-sm text-gray-300 block py-1.5 select-none">{semesterData.sas ?? '-'}</span>
-                                )}
-                           </td>
-                           <td className="p-2 border-l border-gray-200 text-center font-bold text-purple-700 text-sm bg-purple-50/20 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-white group-hover:bg-purple-50/20">
-                                {finalGrade !== null ? finalGrade : '-'}
-                           </td>
-                        </tr>
-                    );
-                })
-             )}
+                       )}
+                    </tr>
+                );
+             })}
           </tbody>
         </table>
       </div>

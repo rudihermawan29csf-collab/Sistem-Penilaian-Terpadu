@@ -1,14 +1,16 @@
 
 import React, { useState } from 'react';
 import { Teacher } from '../types';
-import { Plus, Edit2, Trash2, Check, X, Save, User } from 'lucide-react';
+import { Plus, Edit2, Trash2, Check, X, Save, User, Crown, BookOpen, ChevronDown } from 'lucide-react';
 
 interface TeacherDataViewProps {
   teachers: Teacher[];
   setTeachers: (teacher: Teacher) => void; 
+  availableClasses: string[]; 
+  availableSubjects?: string[]; // Added prop
 }
 
-const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers }) => {
+const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers, availableClasses, availableSubjects = [] }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   
@@ -16,11 +18,14 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
     name: '',
     nip: '',
     subject: '',
-    classes: [] as string[]
+    classes: [] as string[],
+    waliKelas: ''
   };
   const [formData, setFormData] = useState(initialFormState);
 
   const classColumns = ['VII A', 'VII B', 'VII C', 'VIII A', 'VIII B', 'VIII C', 'IX A', 'IX B', 'IX C'];
+  // Combine props classes with default columns to ensure all options are available
+  const allClassOptions = Array.from(new Set([...classColumns, ...availableClasses])).sort();
 
   const handleEdit = (teacher: Teacher) => {
     setEditingTeacher(teacher); 
@@ -28,7 +33,8 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
       name: teacher.name,
       nip: teacher.nip,
       subject: teacher.subject,
-      classes: teacher.classes
+      classes: teacher.classes,
+      waliKelas: teacher.waliKelas || ''
     });
     setIsModalOpen(true);
   };
@@ -43,29 +49,27 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
     let teacherToSave: Teacher;
 
     if (editingTeacher) {
-      // STRICT UPDATE: Use the ID from the specific row being edited to ensure only this row updates
       teacherToSave = {
-        ...editingTeacher, // Preserves ID and No
+        ...editingTeacher, 
         name: formData.name,
         nip: formData.nip,
         subject: formData.subject,
-        classes: formData.classes
+        classes: formData.classes,
+        waliKelas: formData.waliKelas || undefined
       };
     } else {
-      // NEW ENTRY: Generate a truly unique ID
       teacherToSave = {
         id: Date.now() + Math.floor(Math.random() * 10000),
         no: teachers.length + 1,
         name: formData.name,
         nip: formData.nip,
         subject: formData.subject,
-        classes: formData.classes
+        classes: formData.classes,
+        waliKelas: formData.waliKelas || undefined
       };
     }
     
-    // Pass the single teacher object to the handler (App.tsx should handle the array update by ID)
     setTeachers(teacherToSave); 
-    
     setIsModalOpen(false);
     setEditingTeacher(null);
     setFormData(initialFormState);
@@ -82,7 +86,6 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
 
   return (
     <div className="flex-1 bg-white h-full flex flex-col">
-      {/* Header */}
       <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10">
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -104,10 +107,8 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
         </button>
       </div>
 
-      {/* Table Container - Added overflow-x-auto for horizontal scrolling */}
       <div className="flex-1 overflow-x-auto custom-scrollbar p-6">
         <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm inline-block min-w-full align-middle">
-          {/* Added min-w-max to force table width to accommodate all columns */}
           <table className="min-w-max w-full border-collapse">
             <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold tracking-wider">
               <tr>
@@ -115,6 +116,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
                 <th className="p-3 border-r border-gray-200 text-left min-w-[200px] sticky left-12 bg-gray-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Guru</th>
                 <th className="p-3 border-r border-gray-200 text-left min-w-[150px] whitespace-nowrap">NIP</th>
                 <th className="p-3 border-r border-gray-200 text-left min-w-[200px] whitespace-nowrap">Mata Pelajaran</th>
+                <th className="p-3 border-r border-gray-200 text-center min-w-[100px] whitespace-nowrap bg-blue-50/50 text-blue-700">Wali Kelas</th>
                 {classColumns.map(cls => (
                   <th key={cls} className="p-2 border-r border-gray-200 text-center w-12 min-w-[3rem] text-[10px]">
                     {cls}
@@ -137,6 +139,13 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
                   </td>
                   <td className="p-3 text-gray-700 border-r border-gray-100 whitespace-nowrap">
                     {teacher.subject}
+                  </td>
+                  <td className="p-3 text-center border-r border-gray-100 whitespace-nowrap">
+                    {teacher.waliKelas ? (
+                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold">{teacher.waliKelas}</span>
+                    ) : (
+                        <span className="text-gray-300 text-xs">-</span>
+                    )}
                   </td>
                   {classColumns.map(cls => (
                     <td key={cls} className="p-2 text-center border-r border-gray-100">
@@ -173,7 +182,6 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
         </div>
       </div>
 
-      {/* Modal Form */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
@@ -211,16 +219,45 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mata Pelajaran</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.subject}
-                    onChange={e => setFormData({...formData, subject: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    placeholder="Contoh: Bahasa Indonesia"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <BookOpen size={14}/> Mata Pelajaran
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      list="subjectListSettings"
+                      value={formData.subject}
+                      onChange={e => setFormData({...formData, subject: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      placeholder="Pilih atau Ketik Mapel"
+                    />
+                    <datalist id="subjectListSettings">
+                        {(availableSubjects.length > 0 ? availableSubjects : []).map(s => <option key={s} value={s} />)}
+                    </datalist>
+                  </div>
                 </div>
+              </div>
+
+              <div>
+                  <label className="block text-sm font-medium text-blue-700 mb-1 flex items-center gap-1">
+                      <Crown size={14}/> Wali Kelas (Opsional)
+                  </label>
+                  <div className="relative">
+                    <select
+                        value={formData.waliKelas}
+                        onChange={(e) => setFormData({...formData, waliKelas: e.target.value})}
+                        className="w-full pl-3 pr-10 py-2 border border-blue-200 bg-blue-50 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-gray-800 appearance-none"
+                    >
+                        <option value="">-- Bukan Wali Kelas --</option>
+                        {allClassOptions.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                        ))}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-blue-500">
+                        <ChevronDown size={16} />
+                    </div>
+                  </div>
               </div>
 
               <div>

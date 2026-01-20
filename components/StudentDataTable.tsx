@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useMemo } from 'react';
 import { Student } from '../types';
 import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter } from 'lucide-react';
@@ -34,7 +35,8 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
     return students.filter(s => {
         const matchesSearch = 
             s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            s.nis.includes(searchTerm);
+            s.nis.includes(searchTerm) ||
+            s.nisn?.includes(searchTerm);
         
         const matchesClass = selectedClassFilter === '' || s.kelas === selectedClassFilter;
 
@@ -49,8 +51,8 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
   // Handle Download Template
   const handleDownloadTemplate = () => {
     const templateData = [
-        { No: 1, NIS: "12345", Nama: "Contoh Siswa Laki", Kelas: "VII A", Gender: "L" },
-        { No: 2, NIS: "12346", Nama: "Contoh Siswa Perempuan", Kelas: "VII A", Gender: "P" },
+        { No: 1, NIS: "12345", NISN: "0012345678", Nama: "Contoh Siswa Laki", Kelas: "VII A", Gender: "L" },
+        { No: 2, NIS: "12346", NISN: "0012345679", Nama: "Contoh Siswa Perempuan", Kelas: "VII A", Gender: "P" },
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
@@ -95,6 +97,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
             data.forEach((row: any, index) => {
                 // Flexible Column Matching (Handle Case Sensitivity)
                 const nisRaw = row['NIS'] || row['nis'] || row['Nis'];
+                const nisnRaw = row['NISN'] || row['nisn'] || row['Nisn'];
                 const namaRaw = row['Nama'] || row['nama'] || row['Nama Siswa'] || row['nama siswa'];
                 const kelasRaw = row['Kelas'] || row['kelas'];
                 const genderRaw = row['Gender'] || row['gender'] || row['Jenis Kelamin'] || row['L/P'];
@@ -108,6 +111,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                 // Normalize Data
                 // Force NIS to string to prevent scientific notation issues
                 const nisStr = nisRaw ? String(nisRaw).trim() : `TEMP-${Date.now()}-${index}`;
+                const nisnStr = nisnRaw ? String(nisnRaw).trim() : '';
                 const nameStr = String(namaRaw).trim().replace(/['"]/g, ''); // Remove quotes that might break JSON
                 const kelasStr = String(kelasRaw).trim().toUpperCase();
                 
@@ -122,6 +126,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     id: Date.now() + index + Math.random(), // Unique ID
                     no: index + 1,
                     nis: nisStr,
+                    nisn: nisnStr,
                     name: nameStr,
                     kelas: kelasStr,
                     gender: genderChar,
@@ -129,7 +134,15 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                         ganjil: createEmptySemesterData(),
                         genap: createEmptySemesterData()
                     },
-                    gradesBySubject: {}
+                    gradesBySubject: {},
+                    attendance: {
+                        ganjil: { s: 0, i: 0, a: 0 },
+                        genap: { s: 0, i: 0, a: 0 }
+                    },
+                    extracurricularRecord: {
+                        ganjil: [],
+                        genap: []
+                    }
                 });
             });
 
@@ -140,7 +153,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     onImport(parsedStudents);
                 }
             } else {
-                alert('GAGAL: Tidak ada data valid ditemukan. Pastikan header kolom Excel adalah: "NIS", "Nama", "Kelas", "Gender".');
+                alert('GAGAL: Tidak ada data valid ditemukan. Pastikan header kolom Excel adalah: "NIS", "NISN", "Nama", "Kelas", "Gender".');
             }
 
         } catch (error) {
@@ -173,7 +186,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                 <div className="relative w-full sm:w-64">
                     <input 
                         type="text" 
-                        placeholder="Cari Nama / NIS..." 
+                        placeholder="Cari Nama / NIS / NISN..." 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -243,7 +256,8 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     <thead className="bg-gray-50 text-xs uppercase text-gray-500 font-bold sticky top-0 z-10">
                         <tr>
                             <th className="px-6 py-4 border-b border-gray-200 w-16 text-center">No</th>
-                            <th className="px-6 py-4 border-b border-gray-200 w-32">NIS</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-24">NISN</th>
+                            <th className="px-6 py-4 border-b border-gray-200 w-24">NIS</th>
                             <th className="px-6 py-4 border-b border-gray-200">Nama Lengkap</th>
                             <th className="px-6 py-4 border-b border-gray-200 w-24 text-center">L/P</th>
                             <th className="px-6 py-4 border-b border-gray-200 w-32 text-center">Kelas</th>
@@ -256,6 +270,9 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                                 <tr key={student.id} className="hover:bg-blue-50/30 transition-colors group">
                                     <td className="px-6 py-3 text-center text-sm text-gray-500">
                                         {index + 1}
+                                    </td>
+                                    <td className="px-6 py-3 text-sm font-mono text-gray-600 font-bold">
+                                        {student.nisn || '-'}
                                     </td>
                                     <td className="px-6 py-3 text-sm font-mono text-gray-600">
                                         {student.nis}
@@ -301,7 +318,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                                <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
                                     <div className="flex flex-col items-center justify-center gap-2">
                                         <Search size={32} className="opacity-20" />
                                         <p>Tidak ada data siswa ditemukan.</p>

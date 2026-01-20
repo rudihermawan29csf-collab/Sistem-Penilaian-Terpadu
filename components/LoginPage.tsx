@@ -1,12 +1,12 @@
 
 import React, { useState, useMemo } from 'react';
-import { School, LogIn, KeyRound, User, ShieldCheck } from 'lucide-react';
+import { School, LogIn, KeyRound, User, ShieldCheck, ClipboardList } from 'lucide-react';
 import { Student, Teacher } from '../types';
 
 interface LoginPageProps {
   students: Student[];
   teachers: Teacher[];
-  onLogin: (role: 'admin' | 'teacher' | 'student', data?: any) => void;
+  onLogin: (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => void;
   adminPasswordSettings: string;
   teacherPasswordSettings: string;
 }
@@ -18,7 +18,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
   adminPasswordSettings, 
   teacherPasswordSettings 
 }) => {
-  const [activeTab, setActiveTab] = useState<'admin' | 'teacher' | 'student'>('student');
+  const [activeTab, setActiveTab] = useState<'admin' | 'teacher' | 'student' | 'leader'>('student');
   const [error, setError] = useState('');
 
   // Student State
@@ -32,7 +32,11 @@ const LoginPage: React.FC<LoginPageProps> = ({
   // Admin State
   const [adminPassword, setAdminPassword] = useState('');
 
-  // Extract classes for student
+  // Leader State
+  const [leaderClass, setLeaderClass] = useState<string>('');
+  const [leaderPassword, setLeaderPassword] = useState('');
+
+  // Extract classes
   const availableClasses = useMemo(() => {
     const classes = Array.from(new Set(students.map(s => s.kelas)));
     return classes.sort();
@@ -68,9 +72,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
       setError('Pilih nama guru.');
       return;
     }
-    // Strict comparison but ensure types match (string to string)
     if (String(teacherPassword).trim() === String(teacherPasswordSettings).trim()) {
-      // Find teacher data (just pass the name, App will handle subject selection)
       onLogin('teacher', { name: selectedTeacherName });
     } else {
       setError('Password guru salah.');
@@ -82,7 +84,6 @@ const LoginPage: React.FC<LoginPageProps> = ({
     const input = String(adminPassword).trim();
     const settingPass = String(adminPasswordSettings).trim();
     
-    // Allow if input matches settings OR if input is exactly "admin123" (Master Override)
     if (input === settingPass || input === 'admin123') {
       onLogin('admin');
     } else {
@@ -90,7 +91,20 @@ const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  const switchTab = (tab: 'admin' | 'teacher' | 'student') => {
+  const handleLeaderLogin = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!leaderClass) {
+          setError('Pilih kelas.');
+          return;
+      }
+      if (leaderPassword === 'ketua123') {
+          onLogin('leader', { className: leaderClass });
+      } else {
+          setError('Password ketua kelas salah.');
+      }
+  };
+
+  const switchTab = (tab: 'admin' | 'teacher' | 'student' | 'leader') => {
     setActiveTab(tab);
     setError('');
     // Reset forms
@@ -99,13 +113,15 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setSelectedTeacherName('');
     setTeacherPassword('');
     setAdminPassword('');
+    setLeaderClass('');
+    setLeaderPassword('');
   };
 
   return (
     <div 
       className="min-h-screen flex items-center justify-center p-4 bg-cover bg-center font-sans"
       style={{
-        backgroundImage: `url('https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop')`, // Vibrant macOS style gradient
+        backgroundImage: `url('https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop')`, 
       }}
     >
       <div className="absolute inset-0 bg-black/10"></div>
@@ -125,10 +141,10 @@ const LoginPage: React.FC<LoginPageProps> = ({
           </div>
 
           {/* Tabs */}
-          <div className="flex p-2 gap-1 bg-black/10 mx-6 mt-4 rounded-xl border border-white/5">
+          <div className="flex p-2 gap-1 bg-black/10 mx-6 mt-4 rounded-xl border border-white/5 overflow-x-auto custom-scrollbar">
             <button
               onClick={() => switchTab('admin')}
-              className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
+              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
                 activeTab === 'admin' 
                   ? 'bg-white text-gray-800 shadow-md' 
                   : 'text-white hover:bg-white/10'
@@ -138,7 +154,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
             </button>
             <button
               onClick={() => switchTab('teacher')}
-              className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
+              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
                 activeTab === 'teacher' 
                   ? 'bg-white text-gray-800 shadow-md' 
                   : 'text-white hover:bg-white/10'
@@ -148,13 +164,23 @@ const LoginPage: React.FC<LoginPageProps> = ({
             </button>
             <button
               onClick={() => switchTab('student')}
-              className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
+              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
                 activeTab === 'student' 
                   ? 'bg-white text-gray-800 shadow-md' 
                   : 'text-white hover:bg-white/10'
               }`}
             >
               Siswa
+            </button>
+            <button
+              onClick={() => switchTab('leader')}
+              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
+                activeTab === 'leader' 
+                  ? 'bg-white text-gray-800 shadow-md' 
+                  : 'text-white hover:bg-white/10'
+              }`}
+            >
+              Ketua
             </button>
           </div>
 
@@ -254,6 +280,47 @@ const LoginPage: React.FC<LoginPageProps> = ({
                   <span>Masuk Guru</span>
                 </button>
               </form>
+            )}
+
+            {activeTab === 'leader' && (
+                <form onSubmit={handleLeaderLogin} className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-white ml-1">Kelas</label>
+                        <div className="relative">
+                            <select
+                                value={leaderClass}
+                                onChange={(e) => setLeaderClass(e.target.value)}
+                                className="w-full pl-3 pr-8 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-gray-200 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm appearance-none backdrop-blur-md font-medium"
+                                required
+                            >
+                                <option value="">Pilih Kelas...</option>
+                                {availableClasses.map(cls => (
+                                    <option key={cls} value={cls}>{cls}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-white ml-1">Password Ketua Kelas</label>
+                        <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/70">
+                                <KeyRound size={16} />
+                            </div>
+                            <input
+                                type="password"
+                                value={leaderPassword}
+                                onChange={(e) => setLeaderPassword(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm backdrop-blur-md font-medium"
+                                placeholder="ketua123"
+                                required
+                            />
+                        </div>
+                    </div>
+                    <button type="submit" className="w-full mt-2 bg-white/90 hover:bg-white text-emerald-900 font-bold py-2.5 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
+                        <ClipboardList size={16} />
+                        <span>Masuk Ketua Kelas</span>
+                    </button>
+                </form>
             )}
 
             {activeTab === 'admin' && (

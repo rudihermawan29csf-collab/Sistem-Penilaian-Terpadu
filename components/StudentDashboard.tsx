@@ -2,7 +2,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, SemesterKey, ChapterKey, GradingSession, FormativeKey, AppSettings, Teacher, SemesterData } from '../types';
 import { getActiveFields, calculateChapterAverage, calculateFinalGrade, createEmptySemesterData } from '../utils';
-import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle } from 'lucide-react';
+import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList } from 'lucide-react';
+import MidSemesterReportView from './MidSemesterReportView';
 
 interface StudentDashboardProps {
   student: Student;
@@ -23,7 +24,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     onLogout,
     subjectChapterConfigs = {} 
 }) => {
-  const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi'>('detail');
+  const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi' | 'rapor_sisipan'>('detail');
   const [selectedSemester, setSelectedSemester] = useState<SemesterKey>(settings.activeSemester);
   
   // Clock State
@@ -114,11 +115,11 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       const currentTeacherName = subjectTeacherMap[selectedSubject] || '-';
 
       const allChapters: { key: ChapterKey; label: string }[] = [
-        { key: 'bab1', label: selectedSemester === 'genap' ? 'Bab 6' : 'Bab 1' },
-        { key: 'bab2', label: selectedSemester === 'genap' ? 'Bab 7' : 'Bab 2' },
-        { key: 'bab3', label: selectedSemester === 'genap' ? 'Bab 8' : 'Bab 3' },
-        { key: 'bab4', label: selectedSemester === 'genap' ? 'Bab 9' : 'Bab 4' },
-        { key: 'bab5', label: selectedSemester === 'genap' ? 'Bab 10' : 'Bab 5' },
+        { key: 'bab1', label: 'TP 1' },
+        { key: 'bab2', label: 'TP 2' },
+        { key: 'bab3', label: 'TP 3' },
+        { key: 'bab4', label: 'TP 4' },
+        { key: 'bab5', label: 'TP 5' },
       ];
 
       const chapters = allChapters.filter(c => visibleChapters[c.key]);
@@ -243,7 +244,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
         {/* Chapters */}
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide ml-1">Rincian Nilai Bab</h3>
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide ml-1">Rincian Nilai TP</h3>
           {chapters.map((chap) => {
              const chapterData = grades[chap.key];
              const activeFields = activeFieldsMap[chap.key];
@@ -376,9 +377,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
               let taskName = session.type.toUpperCase();
               if (session.type === 'bab' && session.chapterKey) {
                   const babNum = parseInt(session.chapterKey.replace('bab', ''));
-                  const displayBab = selectedSemester === 'genap' ? babNum + 5 : babNum;
+                  const displayBab = babNum;
                   const field = session.formativeKey === 'sum' ? 'Sumatif' : session.formativeKey?.toUpperCase();
-                  taskName = `Bab ${displayBab} - ${field}`;
+                  taskName = `TP ${displayBab} - ${field}`;
               }
 
               listItems.push({
@@ -511,40 +512,56 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       {/* Navigation Tabs */}
       <div className="max-w-3xl mx-auto w-full px-4 mt-4">
-          <div className="flex p-1 bg-gray-200 rounded-xl">
+          <div className="flex p-1 bg-gray-200 rounded-xl overflow-x-auto">
               <button 
                 onClick={() => setActiveTab('detail')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'detail' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'detail' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                   <LayoutDashboard size={14} /> Detail
               </button>
               <button 
                 onClick={() => setActiveTab('summary')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'summary' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'summary' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                   <FileText size={14} /> Rekap
               </button>
               <button 
                 onClick={() => setActiveTab('tanggungan')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'tanggungan' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'tanggungan' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                   <AlertCircle size={14} /> Tanggungan
               </button>
               <button 
                 onClick={() => setActiveTab('remidi')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'remidi' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'remidi' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                   <RefreshCw size={14} /> Remidi
+              </button>
+              <button 
+                onClick={() => setActiveTab('rapor_sisipan')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'rapor_sisipan' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                  <ClipboardList size={14} /> Rapor Sisipan
               </button>
           </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 p-4 max-w-2xl mx-auto w-full pb-20">
+      <div className="flex-1 p-4 max-w-3xl mx-auto w-full pb-20">
           {activeTab === 'detail' && renderDetailView()}
           {activeTab === 'summary' && renderSummaryView()}
           {activeTab === 'tanggungan' && renderMonitoringList('tanggungan')}
           {activeTab === 'remidi' && renderMonitoringList('remidi')}
+          {activeTab === 'rapor_sisipan' && (
+              <div className="animate-scale-in bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <MidSemesterReportView 
+                      students={[student]} // Pass only the logged-in student
+                      teachers={teachers} 
+                      settings={settings} 
+                      assessmentHistory={assessmentHistory} 
+                  />
+              </div>
+          )}
       </div>
     </div>
   );
