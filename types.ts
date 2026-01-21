@@ -140,4 +140,6 @@ export interface AppSettings {
   waliKelasMap: Record<string, { name: string; nip: string }>; 
   // REMOVED description from settings, it will be auto-generated based on grades
   extracurriculars: { name: string; coach: string }[]; 
+  
+  lastUpdated?: number; // Timestamp for sync resolution
 }

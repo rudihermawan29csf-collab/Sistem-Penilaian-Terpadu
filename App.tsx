@@ -29,7 +29,7 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff, HardDrive
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff, HardDrive, RefreshCw as SyncIcon
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -108,7 +108,8 @@ const defaultSettings: AppSettings = {
       bab5: { f1: true, f2: true, f3: true, f4: true, f5: true, sum: true },
   },
   waliKelasMap: {},
-  extracurriculars: []
+  extracurriculars: [],
+  lastUpdated: 0
 };
 
 const LOCAL_STORAGE_KEY = 'igrade_data_backup_v2';
@@ -137,6 +138,7 @@ const App: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   
   // Teacher/View Context State
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -151,15 +153,16 @@ const App: React.FC = () => {
 
   // --- LOCAL STORAGE HELPERS ---
   const saveToLocalStorage = useCallback(() => {
+      // Ensure we save the timestamp of this backup
       const dataToSave = {
           students,
           teachers,
           history: assessmentHistory,
-          settings,
+          settings, // settings.lastUpdated should have been updated by modify functions
           dailyAttendance,
           chapterConfigs: subjectChapterConfigs,
           fieldConfigs: subjectFieldConfigs,
-          timestamp: new Date().getTime()
+          timestamp: new Date().getTime() 
       };
       try {
           localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
@@ -170,7 +173,7 @@ const App: React.FC = () => {
 
   // Auto-save to LocalStorage on changes (Debounced)
   useEffect(() => {
-      if (loading) return; // Don't save initial state if loading
+      if (loading) return; 
       const timer = setTimeout(() => {
           saveToLocalStorage();
       }, 2000);
@@ -178,12 +181,12 @@ const App: React.FC = () => {
   }, [students, teachers, assessmentHistory, settings, dailyAttendance, subjectChapterConfigs, subjectFieldConfigs, saveToLocalStorage, loading]);
 
 
-  // --- INITIALIZATION ---
+  // --- INITIALIZATION & SYNC LOGIC ---
   const loadData = useCallback(async () => {
     setLoading(true);
     setOfflineMode(false);
     
-    // Check Local Storage First for immediate display (optional, but good for speed)
+    // 1. Load Local Storage
     let localData: any = null;
     try {
         const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -192,26 +195,51 @@ const App: React.FC = () => {
         }
     } catch (e) { console.warn("Failed to read local storage"); }
 
-    // Try API Fetch
+    // 2. Load API Data
     const apiData = await api.fetchInitialData();
     
-    const data = apiData || localData;
+    let finalData = null;
+    let status: 'connected' | 'local' | 'disconnected' = 'disconnected';
 
-    if (data) {
-        // Decide status
-        if (apiData) {
-            setConnectionStatus('connected');
+    if (apiData && localData) {
+        // CONFLICT RESOLUTION
+        const localTime = localData.settings?.lastUpdated || 0;
+        const serverTime = apiData.settings?.lastUpdated || 0;
+
+        if (localTime > serverTime) {
+            console.log("Using Local Data (Newer than Server)", localTime, serverTime);
+            finalData = localData;
+            status = 'local'; // Temporarily local, but we have internet
+            setSyncMessage("Data lokal lebih baru. Menyimpan ke server...");
+            
+            // Background Sync: Push settings to server to update timestamp
+            api.saveSettings(localData.settings).then(() => {
+                setSyncMessage(null);
+                setConnectionStatus('connected');
+            });
         } else {
-            setConnectionStatus('local');
-            setOfflineMode(true);
-            setShowOfflineBanner(true);
+            console.log("Using Server Data (Newer or Equal)");
+            finalData = apiData;
+            status = 'connected';
         }
+    } else if (apiData) {
+        finalData = apiData;
+        status = 'connected';
+    } else if (localData) {
+        finalData = localData;
+        status = 'local';
+        setOfflineMode(true);
+        setShowOfflineBanner(true);
+    }
 
-        if (data.students) setStudents(data.students);
-        if (data.teachers) setTeachers(data.teachers);
-        if (data.history) setAssessmentHistory(data.history);
-        if (data.settings) {
-            let loadedSettings = data.settings;
+    if (finalData) {
+        setConnectionStatus(status);
+        if (finalData.students) setStudents(finalData.students);
+        if (finalData.teachers) setTeachers(finalData.teachers);
+        if (finalData.history) setAssessmentHistory(finalData.history);
+        if (finalData.settings) {
+            let loadedSettings = finalData.settings;
+            // Migrations
             if (Array.isArray(loadedSettings.kokurikulerProjects)) {
                 loadedSettings.kokurikulerProjects = {
                     ganjil: loadedSettings.kokurikulerProjects,
@@ -226,11 +254,10 @@ const App: React.FC = () => {
             }
             setSettings(prev => ({ ...prev, ...loadedSettings }));
         }
-        if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
-        if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
-        if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
+        if (finalData.chapterConfigs) setSubjectChapterConfigs(finalData.chapterConfigs);
+        if (finalData.fieldConfigs) setSubjectFieldConfigs(finalData.fieldConfigs);
+        if (finalData.dailyAttendance) setDailyAttendance(finalData.dailyAttendance);
     } else {
-        // Fallback to pure defaults if absolutely nothing exists
         setConnectionStatus('disconnected');
         setOfflineMode(true);
         setShowOfflineBanner(true);
@@ -244,6 +271,13 @@ const App: React.FC = () => {
 
   const handleRetryConnection = () => {
       loadData();
+  };
+
+  // Helper to update timestamp in settings
+  const updateTimestamp = () => {
+      const now = new Date().getTime();
+      setSettings(prev => ({ ...prev, lastUpdated: now }));
+      return now;
   };
 
   // --- AUTH HANDLERS ---
@@ -289,6 +323,7 @@ const App: React.FC = () => {
 
   // --- DATA HANDLERS ---
   const handleUpdateScore = async (id: number, chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null, value: number | null) => {
+    // Update Local State
     setStudents(prev => prev.map(student => {
       if (student.id === id) {
         const newGrades = { ...student.grades };
@@ -321,31 +356,32 @@ const App: React.FC = () => {
             student.gradesBySubject![selectedSubject][settings.activeSemester] = targetSemesterData;
         }
         
-        // Optimistic update
+        // Optimistic update API call
+        // NOTE: Ideally we should update timestamp on every grade change, but that triggers full setting save.
+        // For grade data, the sheet logic is separate. We rely on local storage for persistence.
         api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData).then(success => {
-            if (!success) {
-                // If API fails, we rely on the LocalStorage backup triggered by useEffect
-                if (connectionStatus === 'connected') setConnectionStatus('local');
-            } else {
-                setConnectionStatus('connected');
-            }
+            if (!success && connectionStatus === 'connected') setConnectionStatus('local');
+            else if (success) setConnectionStatus('connected');
         });
         
         return student;
       }
       return student;
     }));
+    
+    // Trigger timestamp update for local backup validity
+    updateTimestamp();
   };
 
-  const handleManualSave = () => {
-      // Trigger API save via a dummy call or just rely on state
-      // Since individual saves happen on change, this button confirms status
+  const handleManualSave = async () => {
       if (connectionStatus === 'connected') {
+          // Force push local settings with new timestamp to ensure server is updated
+          const ts = updateTimestamp();
+          await api.saveSettings({...settings, lastUpdated: ts});
           setShowSaveSuccess(true);
           setTimeout(() => setShowSaveSuccess(false), 2000);
       } else if (connectionStatus === 'local') {
-          // Attempt a full sync or just warn
-          alert("Tersimpan di Browser (Lokal). Koneksi server terputus. Data akan disinkronkan saat online (Fitur Sync belum aktif, pastikan internet lancar).");
+          alert("Tersimpan di Browser (Lokal). Koneksi server terputus. Data akan disinkronkan saat online.");
       } else {
           alert("Gagal menyimpan: Tidak terhubung ke server.");
       }
@@ -357,6 +393,7 @@ const App: React.FC = () => {
     } else {
         setAssessmentHistory(prev => [...prev, session]);
     }
+    updateTimestamp();
     api.saveHistory(session).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
     setEditingSession(null);
     setIsInputModalOpen(false);
@@ -364,6 +401,7 @@ const App: React.FC = () => {
 
   const handleDeleteHistory = (id: string) => {
       setAssessmentHistory(prev => prev.filter(h => h.id !== id));
+      updateTimestamp();
       api.deleteHistory(id).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
@@ -375,10 +413,12 @@ const App: React.FC = () => {
     ).map(h => h.id);
 
     setAssessmentHistory(prev => prev.filter(h => !idsToDelete.includes(h.id)));
+    updateTimestamp();
     idsToDelete.forEach(id => api.deleteHistory(id));
   };
 
   const handleSaveStudent = (student: Student) => {
+      updateTimestamp();
       if (editingStudent) {
           setStudents(prev => prev.map(s => s.id === student.id ? student : s));
           api.updateStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
@@ -392,6 +432,7 @@ const App: React.FC = () => {
 
   const handleDeleteStudent = (id: number) => {
       setStudents(prev => prev.filter(s => s.id !== id));
+      updateTimestamp();
       api.deleteStudent(id).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
@@ -406,17 +447,20 @@ const App: React.FC = () => {
           }
       });
       setStudents(mergedStudents);
+      updateTimestamp();
       api.importStudents(newStudents).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleUpdateStudentsBulk = (updatedStudents: Student[]) => {
       setStudents(updatedStudents);
+      updateTimestamp();
       updatedStudents.forEach(s => api.updateStudent(s));
   };
 
   const handleSaveChapterConfig = (config: Record<ChapterKey, boolean>, fieldConfig: Record<ChapterKey, Record<FormativeKey, boolean>>) => {
       setSubjectChapterConfigs(prev => ({ ...prev, [selectedSubject]: config }));
       setSubjectFieldConfigs(prev => ({ ...prev, [selectedSubject]: fieldConfig }));
+      updateTimestamp();
       api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig }).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
@@ -425,12 +469,16 @@ const App: React.FC = () => {
           if (s.kelas === className) { return s; }
           return s;
       }));
+      updateTimestamp();
       api.resetClassGrades(className, settings.activeSemester).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
-      setSettings(newSettings);
-      const ok = await api.saveSettings(newSettings);
+      const now = new Date().getTime();
+      const settingsWithTs = { ...newSettings, lastUpdated: now };
+      setSettings(settingsWithTs);
+      // Wait for save to ensure server has new timestamp
+      const ok = await api.saveSettings(settingsWithTs);
       setConnectionStatus(ok ? 'connected' : 'local');
   };
 
@@ -444,6 +492,7 @@ const App: React.FC = () => {
           }
           return [...prev, log];
       });
+      updateTimestamp();
   };
 
   // --- DOWNLOAD HANDLERS (Grade Table) ---
@@ -753,7 +802,7 @@ const App: React.FC = () => {
                     {connectionStatus === 'local' ? <HardDrive size={14} /> : <WifiOff size={14} />}
                     <span>
                         {connectionStatus === 'local' 
-                            ? 'Mode Offline (Data Lokal): Menggunakan backup data di browser. Perubahan tersimpan lokal.' 
+                            ? 'Mode Offline (Backup Lokal Aktif)' 
                             : 'Koneksi Terputus: Tidak dapat memuat data.'}
                     </span>
                 </div>
@@ -869,23 +918,28 @@ const App: React.FC = () => {
   return (
     <div className="h-screen bg-[#f5f5f7] flex overflow-hidden font-sans text-gray-900">
         
-        {/* Offline Banner */}
-        {offlineMode && showOfflineBanner && (
-            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4 ${connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'}`}>
+        {/* Offline/Sync Banner */}
+        {(offlineMode && showOfflineBanner) || syncMessage ? (
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4 ${
+                syncMessage ? 'bg-blue-600/95' :
+                connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'
+            }`}>
                 <div className="flex items-center gap-2">
-                    {connectionStatus === 'local' ? <HardDrive size={12} /> : <WifiOff size={12} />}
-                    <span>{connectionStatus === 'local' ? 'Mode Offline (Backup Lokal Aktif)' : 'Koneksi Terputus'}</span>
+                    {syncMessage ? <SyncIcon size={12} className="animate-spin"/> : (connectionStatus === 'local' ? <HardDrive size={12} /> : <WifiOff size={12} />)}
+                    <span>{syncMessage || (connectionStatus === 'local' ? 'Mode Offline (Backup Lokal Aktif)' : 'Koneksi Terputus')}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                    <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
-                        <RefreshCcw size={10} /> Coba Lagi
-                    </button>
-                    <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-0.5 hover:bg-black/10 rounded">
-                        <X size={12} />
-                    </button>
-                </div>
+                {!syncMessage && (
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
+                            <RefreshCcw size={10} /> Coba Lagi
+                        </button>
+                        <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-0.5 hover:bg-black/10 rounded">
+                            <X size={12} />
+                        </button>
+                    </div>
+                )}
             </div>
-        )}
+        ) : null}
 
         {/* Sidebar - Dark Indigo Theme */}
         <div className={`fixed inset-y-0 left-0 z-50 ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
@@ -1019,6 +1073,7 @@ const App: React.FC = () => {
                                     onChange={e => {
                                         const newSem = e.target.value as 'ganjil' | 'genap';
                                         setSettings(prev => ({...prev, activeSemester: newSem}));
+                                        updateTimestamp();
                                     }}
                                     className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
                                 >
