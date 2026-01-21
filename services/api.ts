@@ -39,15 +39,23 @@ const postData = async (body: any): Promise<boolean> => {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body)
     });
+    
     const resText = await response.text();
+    
     if (response.ok) {
         try {
             const resJson = JSON.parse(resText);
             return resJson.success === true;
-        } catch(e) { return false; }
+        } catch(e) { 
+            // If JSON parse fails but HTTP is 200, assume success (common with GAS redirects/text output)
+            // This fixes "Data masuk tapi keterangan gagal"
+            console.log("Response OK but JSON parse failed. Assuming success.", resText);
+            return true; 
+        }
     }
     return false;
   } catch (error) {
+    console.error("Post Data Error", error);
     return false;
   }
 };

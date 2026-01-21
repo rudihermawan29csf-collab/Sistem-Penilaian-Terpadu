@@ -377,16 +377,21 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
       setIsEditingCoach(false);
   };
 
-  const availableClasses = Array.from(new Set(students.map(s => s.kelas))).sort();
+  // --- TOP LEVEL CALCULATIONS FOR MODAL ---
+  const availableClasses = useMemo(() => {
+      return Array.from(new Set(students.map(s => s.kelas))).sort();
+  }, [students]);
   
   // Filter students for modal
-  const studentsInModalClass = students.filter(s => {
-      if (s.kelas !== modalClass) return false;
-      if (studentSearchTerm) {
-          return s.name.toLowerCase().includes(studentSearchTerm.toLowerCase());
-      }
-      return true;
-  }).sort((a,b) => a.name.localeCompare(b.name));
+  const studentsInModalClass = useMemo(() => {
+      return students.filter(s => {
+          if (s.kelas !== modalClass) return false;
+          if (studentSearchTerm) {
+              return s.name.toLowerCase().includes(studentSearchTerm.toLowerCase());
+          }
+          return true;
+      }).sort((a,b) => a.name.localeCompare(b.name));
+  }, [students, modalClass, studentSearchTerm]);
 
   const toggleStudentSelection = (id: number) => {
       setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]);
@@ -554,6 +559,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                             onClick={() => {
                                 setModalClass(availableClasses[0] || '');
                                 setSelectedStudentIds([]);
+                                setStudentSearchTerm('');
                                 setIsModalOpen(true);
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-100 shadow-sm text-sm"
@@ -961,7 +967,6 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                           onChange={(e) => setModalClass(e.target.value)}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-700 outline-none w-32"
                       >
-                          <option value="">Pilih Kelas...</option>
                           {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                       <div className="relative flex-1">
@@ -991,17 +996,21 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                                   </div>
                                   {studentsInModalClass.map(s => {
                                       const isEnrolled = s.extracurricularRecord?.[semester]?.some(e => e.activityName === selectedExtra);
+                                      // Also check local state for newly added but not saved yet
+                                      const isLocallyEnrolled = localEnrolledStudents.some(le => le.id === s.id);
+                                      const disabled = isEnrolled || isLocallyEnrolled;
+
                                       return (
-                                          <div key={s.id} className={`flex items-center gap-3 px-4 py-2 rounded-lg ${isEnrolled ? 'opacity-50' : 'hover:bg-purple-50'}`}>
+                                          <div key={s.id} className={`flex items-center gap-3 px-4 py-2 rounded-lg ${disabled ? 'opacity-50' : 'hover:bg-purple-50'}`}>
                                               <input 
                                                   type="checkbox" 
-                                                  checked={selectedStudentIds.includes(s.id) || isEnrolled}
-                                                  onChange={() => !isEnrolled && toggleStudentSelection(s.id)}
-                                                  disabled={isEnrolled}
+                                                  checked={selectedStudentIds.includes(s.id) || disabled}
+                                                  onChange={() => !disabled && toggleStudentSelection(s.id)}
+                                                  disabled={disabled}
                                                   className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                                               />
                                               <div>
-                                                  <p className="text-sm font-medium text-gray-800">{s.name} {isEnrolled && <span className="text-xs text-green-600 font-bold">(Sudah Terdaftar)</span>}</p>
+                                                  <p className="text-sm font-medium text-gray-800">{s.name} {disabled && <span className="text-xs text-green-600 font-bold">(Sudah Terdaftar)</span>}</p>
                                                   <p className="text-xs text-gray-500">{s.nis}</p>
                                               </div>
                                           </div>
