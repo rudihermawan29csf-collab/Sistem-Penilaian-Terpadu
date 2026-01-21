@@ -209,8 +209,9 @@ const App: React.FC = () => {
         if (localTime > serverTime) {
             console.log("Using Local Data (Newer than Server)", localTime, serverTime);
             finalData = localData;
-            status = 'local'; // Temporarily local to allow force sync
-            setSyncMessage("Data lokal lebih baru. Mohon upload data ke server (Tombol di atas).");
+            status = 'local'; 
+            // Suppressed auto-message as per user request to not disturb login
+            // setSyncMessage("Data lokal lebih baru. Mohon upload data ke server.");
         } else {
             console.log("Using Server Data (Newer or Equal)");
             finalData = apiData;
@@ -272,9 +273,9 @@ const App: React.FC = () => {
   };
 
   const handleForceUpload = async () => {
-      if(!window.confirm("PERHATIAN: Ini akan menimpa data di Google Sheets dengan data yang ada di laptop ini. Pastikan URL Script sudah benar. Lanjutkan?")) return;
+      if(!window.confirm("Konfirmasi Upload: \nData yang ada di laptop ini akan disimpan ke Server (Google Sheets). Lanjutkan?")) return;
       
-      setSyncMessage("Mengupload semua data lokal ke server...");
+      setSyncMessage("Mengupload data ke server...");
       
       // Update timestamp before sending
       const now = new Date().getTime();
@@ -292,7 +293,7 @@ const App: React.FC = () => {
       );
 
       if (success) {
-          alert("Berhasil! Data telah tersimpan di server (cloud). Sekarang perangkat lain bisa mengakses data ini.");
+          alert("Berhasil! Data telah tersimpan di server.");
           setSyncMessage(null);
           setConnectionStatus('connected');
           setOfflineMode(false);
@@ -1133,9 +1134,19 @@ const App: React.FC = () => {
                                     onChange={e => setSelectedSubject(e.target.value)}
                                     className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
                                 >
-                                    {userData?.subject && <option value={userData.subject}>{userData.subject}</option>}
-                                    <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
-                                    {userRole === 'admin' && teachers.map(t => t.subject).filter((v,i,a) => a.indexOf(v)===i).map(s => <option key={s} value={s}>{s}</option>)}
+                                    {userRole === 'teacher' ? (
+                                        <option value={userData?.subject}>{userData?.subject}</option>
+                                    ) : (
+                                        <>
+                                            <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
+                                            {teachers
+                                                .map(t => t.subject)
+                                                .filter((v,i,a) => a.indexOf(v)===i && v !== 'Pendidikan Agama Islam')
+                                                .sort()
+                                                .map(s => <option key={s} value={s}>{s}</option>)
+                                            }
+                                        </>
+                                    )}
                                 </select>
 
                                 {activeTab === 'dashboard' && (
@@ -1291,6 +1302,7 @@ const App: React.FC = () => {
                         onEdit={(s) => { setEditingStudent(s); setIsAddStudentModalOpen(true); }}
                         onDelete={handleDeleteStudent}
                         onImport={handleImportStudents}
+                        onSync={handleForceUpload} // Add this
                      />
                  )}
                  {activeTab === 'teachers' && userRole === 'admin' && (
@@ -1309,6 +1321,7 @@ const App: React.FC = () => {
                         }}
                         availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
                         availableSubjects={Array.from(new Set([...teachers.map(t => t.subject), ...(settings.subjects || [])])).sort()} 
+                        onSync={handleForceUpload} // Add this
                      />
                  )}
                  {activeTab === 'monitor_teachers' && userRole === 'admin' && (

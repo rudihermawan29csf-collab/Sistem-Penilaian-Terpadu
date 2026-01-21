@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { Student } from '../types';
-import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter } from 'lucide-react';
+import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter, CloudUpload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { createEmptySemesterData } from '../utils';
 
@@ -11,6 +11,7 @@ interface StudentDataTableProps {
   onEdit: (student: Student) => void;
   onDelete: (id: number) => void;
   onImport: (students: Student[]) => void;
+  onSync: () => void; // Added prop
 }
 
 const StudentDataTable: React.FC<StudentDataTableProps> = ({ 
@@ -18,7 +19,8 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
   onAdd, 
   onEdit, 
   onDelete,
-  onImport 
+  onImport,
+  onSync 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClassFilter, setSelectedClassFilter] = useState(''); // Filter Class State
@@ -183,7 +185,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
             
             <div className="flex flex-col sm:flex-row items-center gap-2 w-full xl:w-auto">
                 {/* Search Input */}
-                <div className="relative w-full sm:w-64">
+                <div className="relative w-full sm:w-48">
                     <input 
                         type="text" 
                         placeholder="Cari Nama / NIS / NISN..." 
@@ -195,7 +197,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                 </div>
 
                 {/* Class Filter Dropdown */}
-                <div className="relative w-full sm:w-40">
+                <div className="relative w-full sm:w-32">
                     <select
                         value={selectedClassFilter}
                         onChange={(e) => setSelectedClassFilter(e.target.value)}
@@ -243,7 +245,16 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                         className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm w-full sm:w-auto justify-center"
                     >
                         <Plus size={16} />
-                        <span>Tambah Siswa</span>
+                        <span>Tambah</span>
+                    </button>
+
+                    {/* SAVE / SYNC BUTTON */}
+                    <button 
+                        onClick={onSync}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-bold shadow-md w-full sm:w-auto justify-center animate-pulse"
+                    >
+                        <CloudUpload size={16} />
+                        <span>Simpan ke Server</span>
                     </button>
                 </div>
             </div>

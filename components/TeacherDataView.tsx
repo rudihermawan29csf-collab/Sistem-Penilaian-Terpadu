@@ -1,16 +1,23 @@
 
 import React, { useState } from 'react';
 import { Teacher } from '../types';
-import { Plus, Edit2, Trash2, Check, X, Save, User, Crown, BookOpen, ChevronDown } from 'lucide-react';
+import { Plus, Edit2, Trash2, Check, X, Save, User, Crown, BookOpen, ChevronDown, CloudUpload } from 'lucide-react';
 
 interface TeacherDataViewProps {
   teachers: Teacher[];
   setTeachers: (teacher: Teacher) => void; 
   availableClasses: string[]; 
   availableSubjects?: string[]; 
+  onSync: () => void; // Added prop
 }
 
-const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers, availableClasses, availableSubjects = [] }) => {
+const TeacherDataView: React.FC<TeacherDataViewProps> = ({ 
+    teachers, 
+    setTeachers, 
+    availableClasses, 
+    availableSubjects = [],
+    onSync 
+}) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   
@@ -113,7 +120,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
 
   return (
     <div className="flex-1 bg-white h-full flex flex-col">
-      <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10">
+      <div className="px-6 py-5 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white sticky top-0 z-10 gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <User className="text-blue-600" />
@@ -121,18 +128,29 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
           </h2>
           <p className="text-sm text-gray-500 mt-1">Kelola data guru, NIP, mata pelajaran, dan distribusi kelas.</p>
         </div>
-        <button 
-          onClick={() => {
-            setEditingTeacher(null);
-            setFormData(initialFormState);
-            setIsCustomSubject(false);
-            setIsModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
-        >
-          <Plus size={16} />
-          Tambah Guru
-        </button>
+        
+        <div className="flex items-center gap-2">
+            <button 
+                onClick={onSync}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-bold shadow-md animate-pulse"
+            >
+                <CloudUpload size={16} />
+                Simpan ke Server
+            </button>
+
+            <button 
+            onClick={() => {
+                setEditingTeacher(null);
+                setFormData(initialFormState);
+                setIsCustomSubject(false);
+                setIsModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
+            >
+            <Plus size={16} />
+            Tambah Guru
+            </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-x-auto custom-scrollbar p-6">
