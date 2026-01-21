@@ -152,6 +152,24 @@ const App: React.FC = () => {
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
+  // --- ACCESS CONTROL MEMO ---
+  const isWaliKelas = useMemo(() => {
+      if (userRole === 'admin') return true;
+      if (userRole === 'teacher' && userData?.waliKelas) return true;
+      return false;
+  }, [userRole, userData]);
+
+  const isCoach = useMemo(() => {
+      if (userRole === 'admin') return true;
+      if (userRole === 'teacher' && userData?.name) {
+          // Check if teacher name exists in any extracurricular coach field
+          return settings.extracurriculars?.some(e => e.coach === userData.name);
+      }
+      return false;
+  }, [userRole, userData, settings.extracurriculars]);
+
+  const isAdmin = userRole === 'admin';
+
   // --- COMPUTED PROPERTIES FOR TEACHER MULTI-SUBJECT SUPPORT ---
   const teacherSubjects = useMemo(() => {
       if (userRole === 'teacher' && userData?.name) {
@@ -248,8 +266,6 @@ const App: React.FC = () => {
 
     if (apiData) {
         // If API data exists, we are connected.
-        // Even if we prioritize local data due to timestamp, the status should be 'connected' (but unsynced)
-        // For simplicity in this app, we call it 'connected' to avoid the yellow banner
         status = 'connected';
         
         if (localData && (localData.settings?.lastUpdated || 0) > (apiData.settings?.lastUpdated || 0)) {
@@ -891,9 +907,13 @@ const App: React.FC = () => {
                 <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} />
                 <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} />
                 
-                <SectionLabel label="Tugas Tambahan" />
-                <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
-                <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
+                {(isWaliKelas || isCoach) && <SectionLabel label="Tugas Tambahan" />}
+                {isWaliKelas && (
+                    <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
+                )}
+                {isCoach && (
+                    <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
+                )}
                 
                 <SectionLabel label="Monitoring" />
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
@@ -902,11 +922,11 @@ const App: React.FC = () => {
                 <SectionLabel label="Laporan" />
                 <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
                 
-                <SectionLabel label="Sistem" />
-                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
-                
-                {userRole === 'admin' && (
+                {isAdmin && (
                     <>
+                        <SectionLabel label="Sistem" />
+                        <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
+                    
                         <SectionLabel label="Admin Master" />
                         <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} />
                         <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} />
@@ -1050,7 +1070,7 @@ const App: React.FC = () => {
                      </div>
                  )}
 
-                 {activeTab === 'walikelas' && (
+                 {activeTab === 'walikelas' && isWaliKelas && (
                      <div className="bg-white h-full flex flex-col">
                         <WaliKelasView 
                             students={students}
@@ -1061,11 +1081,13 @@ const App: React.FC = () => {
                             assessmentHistory={assessmentHistory}
                             dailyAttendance={dailyAttendance}
                             onSaveDailyAttendance={handleSaveDailyAttendance}
+                            userRole={userRole || 'admin'}
+                            userData={userData}
                         />
                      </div>
                  )}
 
-                 {activeTab === 'extra' && (
+                 {activeTab === 'extra' && isCoach && (
                      <div className="bg-white h-full flex flex-col">
                         <ExtraActivityView 
                             students={students}
@@ -1076,7 +1098,7 @@ const App: React.FC = () => {
                             onUpdateSettings={handleSaveSettings}
                             dailyAttendance={dailyAttendance}
                             onSaveDailyAttendance={handleSaveDailyAttendance}
-                            userRole={userRole}
+                            userRole={userRole || 'admin'}
                             userData={userData}
                         />
                      </div>
@@ -1124,7 +1146,7 @@ const App: React.FC = () => {
                      </div>
                  )}
 
-                 {activeTab === 'settings' && (
+                 {activeTab === 'settings' && isAdmin && (
                      <SettingsView 
                         settings={settings}
                         teachers={teachers}
@@ -1133,16 +1155,17 @@ const App: React.FC = () => {
                  )}
 
                  {/* Admin Only: Students & Teachers */}
-                 {activeTab === 'students' && userRole === 'admin' && (
+                 {activeTab === 'students' && isAdmin && (
                      <StudentDataTable 
                         students={students}
                         onAdd={() => { setEditingStudent(null); setIsAddStudentModalOpen(true); }}
                         onEdit={(s) => { setEditingStudent(s); setIsAddStudentModalOpen(true); }}
                         onDelete={handleDeleteStudent}
                         onImport={handleImportStudents}
+                        onSync={handleForceUpload}
                      />
                  )}
-                 {activeTab === 'teachers' && userRole === 'admin' && (
+                 {activeTab === 'teachers' && isAdmin && (
                      <TeacherDataView 
                         teachers={teachers}
                         setTeachers={(t) => {
@@ -1156,9 +1179,10 @@ const App: React.FC = () => {
                         }}
                         availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
                         availableSubjects={Array.from(new Set([...teachers.map(t => t.subject), ...(settings.subjects || [])])).sort()} 
+                        onSync={handleForceUpload}
                      />
                  )}
-                 {activeTab === 'monitor_teachers' && userRole === 'admin' && (
+                 {activeTab === 'monitor_teachers' && isAdmin && (
                      <TeacherMonitoringView 
                         teachers={teachers}
                         history={assessmentHistory}
@@ -1166,7 +1190,7 @@ const App: React.FC = () => {
                         availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
                      />
                  )}
-                 {activeTab === 'reset' && userRole === 'admin' && (
+                 {activeTab === 'reset' && isAdmin && (
                      <ResetDataView 
                         availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
                         currentSemester={settings.activeSemester}
