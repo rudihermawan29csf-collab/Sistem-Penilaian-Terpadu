@@ -29,7 +29,7 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff, HardDrive
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -111,10 +111,12 @@ const defaultSettings: AppSettings = {
   extracurriculars: []
 };
 
+const LOCAL_STORAGE_KEY = 'igrade_data_backup_v2';
+
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [offlineMode, setOfflineMode] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'local' | 'disconnected'>('disconnected');
   const [showOfflineBanner, setShowOfflineBanner] = useState(true); 
   const [userRole, setUserRole] = useState<'admin' | 'teacher' | 'student' | 'leader' | null>(null);
   const [userData, setUserData] = useState<any>(null);
@@ -147,41 +149,88 @@ const App: React.FC = () => {
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
+  // --- LOCAL STORAGE HELPERS ---
+  const saveToLocalStorage = useCallback(() => {
+      const dataToSave = {
+          students,
+          teachers,
+          history: assessmentHistory,
+          settings,
+          dailyAttendance,
+          chapterConfigs: subjectChapterConfigs,
+          fieldConfigs: subjectFieldConfigs,
+          timestamp: new Date().getTime()
+      };
+      try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+      } catch (e) {
+          console.warn("Storage full or unavailable", e);
+      }
+  }, [students, teachers, assessmentHistory, settings, dailyAttendance, subjectChapterConfigs, subjectFieldConfigs]);
+
+  // Auto-save to LocalStorage on changes (Debounced)
+  useEffect(() => {
+      if (loading) return; // Don't save initial state if loading
+      const timer = setTimeout(() => {
+          saveToLocalStorage();
+      }, 2000);
+      return () => clearTimeout(timer);
+  }, [students, teachers, assessmentHistory, settings, dailyAttendance, subjectChapterConfigs, subjectFieldConfigs, saveToLocalStorage, loading]);
+
+
   // --- INITIALIZATION ---
   const loadData = useCallback(async () => {
     setLoading(true);
     setOfflineMode(false);
     
-    // Add small delay to ensure UI updates before heavy fetch
-    await new Promise(r => setTimeout(r, 100));
+    // Check Local Storage First for immediate display (optional, but good for speed)
+    let localData: any = null;
+    try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+            localData = JSON.parse(stored);
+        }
+    } catch (e) { console.warn("Failed to read local storage"); }
 
-    const data = await api.fetchInitialData();
+    // Try API Fetch
+    const apiData = await api.fetchInitialData();
     
+    const data = apiData || localData;
+
     if (data) {
-      setConnectionStatus('connected');
-      if (data.students) setStudents(data.students);
-      if (data.teachers) setTeachers(data.teachers);
-      if (data.history) setAssessmentHistory(data.history);
-      if (data.settings) {
-          let loadedSettings = data.settings;
-          if (Array.isArray(loadedSettings.kokurikulerProjects)) {
-              loadedSettings.kokurikulerProjects = {
-                  ganjil: loadedSettings.kokurikulerProjects,
-                  genap: []
-              };
-          }
-          if (typeof loadedSettings.midSemesterDate === 'string') {
-              loadedSettings.midSemesterDate = {
-                  ganjil: loadedSettings.midSemesterDate,
-                  genap: loadedSettings.midSemesterDate
-              };
-          }
-          setSettings(prev => ({ ...prev, ...loadedSettings }));
-      }
-      if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
-      if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
-      if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
+        // Decide status
+        if (apiData) {
+            setConnectionStatus('connected');
+        } else {
+            setConnectionStatus('local');
+            setOfflineMode(true);
+            setShowOfflineBanner(true);
+        }
+
+        if (data.students) setStudents(data.students);
+        if (data.teachers) setTeachers(data.teachers);
+        if (data.history) setAssessmentHistory(data.history);
+        if (data.settings) {
+            let loadedSettings = data.settings;
+            if (Array.isArray(loadedSettings.kokurikulerProjects)) {
+                loadedSettings.kokurikulerProjects = {
+                    ganjil: loadedSettings.kokurikulerProjects,
+                    genap: []
+                };
+            }
+            if (typeof loadedSettings.midSemesterDate === 'string') {
+                loadedSettings.midSemesterDate = {
+                    ganjil: loadedSettings.midSemesterDate,
+                    genap: loadedSettings.midSemesterDate
+                };
+            }
+            setSettings(prev => ({ ...prev, ...loadedSettings }));
+        }
+        if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
+        if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
+        if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
     } else {
+        // Fallback to pure defaults if absolutely nothing exists
         setConnectionStatus('disconnected');
         setOfflineMode(true);
         setShowOfflineBanner(true);
@@ -275,8 +324,8 @@ const App: React.FC = () => {
         // Optimistic update
         api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData).then(success => {
             if (!success) {
-                // Ideally revert state here or show warning, but for now we rely on connection status
-                setConnectionStatus('disconnected');
+                // If API fails, we rely on the LocalStorage backup triggered by useEffect
+                if (connectionStatus === 'connected') setConnectionStatus('local');
             } else {
                 setConnectionStatus('connected');
             }
@@ -289,13 +338,16 @@ const App: React.FC = () => {
   };
 
   const handleManualSave = () => {
-      // Just a visual confirmation since data saves on change
-      // But we can check connection status here
+      // Trigger API save via a dummy call or just rely on state
+      // Since individual saves happen on change, this button confirms status
       if (connectionStatus === 'connected') {
           setShowSaveSuccess(true);
           setTimeout(() => setShowSaveSuccess(false), 2000);
+      } else if (connectionStatus === 'local') {
+          // Attempt a full sync or just warn
+          alert("Tersimpan di Browser (Lokal). Koneksi server terputus. Data akan disinkronkan saat online (Fitur Sync belum aktif, pastikan internet lancar).");
       } else {
-          alert("Gagal menyimpan: Tidak terhubung ke server. Periksa koneksi internet Anda.");
+          alert("Gagal menyimpan: Tidak terhubung ke server.");
       }
   };
 
@@ -305,14 +357,14 @@ const App: React.FC = () => {
     } else {
         setAssessmentHistory(prev => [...prev, session]);
     }
-    api.saveHistory(session).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+    api.saveHistory(session).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
     setEditingSession(null);
     setIsInputModalOpen(false);
   };
 
   const handleDeleteHistory = (id: string) => {
       setAssessmentHistory(prev => prev.filter(h => h.id !== id));
-      api.deleteHistory(id).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+      api.deleteHistory(id).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleResetHistory = () => {
@@ -329,10 +381,10 @@ const App: React.FC = () => {
   const handleSaveStudent = (student: Student) => {
       if (editingStudent) {
           setStudents(prev => prev.map(s => s.id === student.id ? student : s));
-          api.updateStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+          api.updateStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
       } else {
           setStudents(prev => [...prev, student]);
-          api.addStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+          api.addStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
       }
       setIsAddStudentModalOpen(false);
       setEditingStudent(null);
@@ -340,7 +392,7 @@ const App: React.FC = () => {
 
   const handleDeleteStudent = (id: number) => {
       setStudents(prev => prev.filter(s => s.id !== id));
-      api.deleteStudent(id).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+      api.deleteStudent(id).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleImportStudents = (newStudents: Student[]) => {
@@ -354,7 +406,7 @@ const App: React.FC = () => {
           }
       });
       setStudents(mergedStudents);
-      api.importStudents(newStudents).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+      api.importStudents(newStudents).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleUpdateStudentsBulk = (updatedStudents: Student[]) => {
@@ -365,7 +417,7 @@ const App: React.FC = () => {
   const handleSaveChapterConfig = (config: Record<ChapterKey, boolean>, fieldConfig: Record<ChapterKey, Record<FormativeKey, boolean>>) => {
       setSubjectChapterConfigs(prev => ({ ...prev, [selectedSubject]: config }));
       setSubjectFieldConfigs(prev => ({ ...prev, [selectedSubject]: fieldConfig }));
-      api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig }).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+      api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig }).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleResetClass = (className: string) => {
@@ -373,13 +425,13 @@ const App: React.FC = () => {
           if (s.kelas === className) { return s; }
           return s;
       }));
-      api.resetClassGrades(className, settings.activeSemester).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
+      api.resetClassGrades(className, settings.activeSemester).then(ok => setConnectionStatus(ok ? 'connected' : 'local'));
   };
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
       setSettings(newSettings);
       const ok = await api.saveSettings(newSettings);
-      setConnectionStatus(ok ? 'connected' : 'disconnected');
+      setConnectionStatus(ok ? 'connected' : 'local');
   };
 
   const handleSaveDailyAttendance = (log: DailyAttendanceLog) => {
@@ -696,10 +748,14 @@ const App: React.FC = () => {
     return (
       <>
         {offlineMode && showOfflineBanner && (
-            <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down">
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down ${connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'}`}>
                 <div className="flex items-center gap-2">
-                    <WifiOff size={14} />
-                    <span>Mode Offline: Menggunakan data lokal. Perubahan tidak tersimpan ke server.</span>
+                    {connectionStatus === 'local' ? <HardDrive size={14} /> : <WifiOff size={14} />}
+                    <span>
+                        {connectionStatus === 'local' 
+                            ? 'Mode Offline (Data Lokal): Menggunakan backup data di browser. Perubahan tersimpan lokal.' 
+                            : 'Koneksi Terputus: Tidak dapat memuat data.'}
+                    </span>
                 </div>
                 <div className="flex items-center gap-2">
                     <button 
@@ -731,10 +787,10 @@ const App: React.FC = () => {
     return (
         <>
             {offlineMode && showOfflineBanner && (
-                <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
+                <div className="fixed top-0 left-0 right-0 z-[60] bg-yellow-600/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <WifiOff size={14} />
-                        <span>Mode Offline: Data mungkin tidak terbaru.</span>
+                        <HardDrive size={14} />
+                        <span>Mode Offline: Menggunakan data lokal (cache).</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded flex gap-1"><RefreshCcw size={10}/> Coba Lagi</button>
@@ -761,10 +817,10 @@ const App: React.FC = () => {
       return (
           <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans relative">
                {offlineMode && showOfflineBanner && (
-                   <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
+                   <div className="fixed top-0 left-0 right-0 z-[60] bg-yellow-600/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <WifiOff size={14} />
-                            <span>Mode Offline: Data absensi tidak akan terkirim.</span>
+                            <HardDrive size={14} />
+                            <span>Mode Offline: Simpan lokal (browser) aktif.</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded flex gap-1"><RefreshCcw size={10}/> Coba Lagi</button>
@@ -815,10 +871,10 @@ const App: React.FC = () => {
         
         {/* Offline Banner */}
         {offlineMode && showOfflineBanner && (
-            <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4">
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4 ${connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'}`}>
                 <div className="flex items-center gap-2">
-                    <WifiOff size={12} />
-                    <span>Mode Offline: Menggunakan data lokal. Perubahan tidak tersimpan ke server.</span>
+                    {connectionStatus === 'local' ? <HardDrive size={12} /> : <WifiOff size={12} />}
+                    <span>{connectionStatus === 'local' ? 'Mode Offline (Backup Lokal Aktif)' : 'Koneksi Terputus'}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
@@ -904,10 +960,18 @@ const App: React.FC = () => {
                 {/* Cloud Status Indicator */}
                 {!isSidebarCollapsed && (
                     <div className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
-                        connectionStatus === 'connected' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                        connectionStatus === 'connected' ? 'bg-green-500/10 text-green-400' : 
+                        connectionStatus === 'local' ? 'bg-yellow-500/10 text-yellow-400' :
+                        'bg-red-500/10 text-red-400'
                     }`}>
-                        {connectionStatus === 'connected' ? <Cloud size={14} /> : <CloudOff size={14} />}
-                        <span>{connectionStatus === 'connected' ? 'Server Terhubung' : 'Koneksi Terputus'}</span>
+                        {connectionStatus === 'connected' ? <Cloud size={14} /> : 
+                         connectionStatus === 'local' ? <HardDrive size={14} /> : 
+                         <CloudOff size={14} />}
+                        <span>
+                            {connectionStatus === 'connected' ? 'Server Terhubung' : 
+                             connectionStatus === 'local' ? 'Mode Offline (Lokal)' : 
+                             'Koneksi Terputus'}
+                        </span>
                     </div>
                 )}
 
