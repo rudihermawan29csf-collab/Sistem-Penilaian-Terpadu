@@ -6,12 +6,12 @@ const API_URL = "https://script.google.com/macros/s/AKfycbzTilcGfR8xawtP1dkXE_bF
 
 export const fetchInitialData = async () => {
   try {
-    // Single attempt with timestamp to prevent caching
-    // credentials: 'omit' is crucial for public scripts to avoid Google Auth conflicts in browser
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
         method: 'GET',
         redirect: 'follow',
-        credentials: 'omit',
+        headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+        }
     });
     
     if (!response.ok) {
@@ -30,33 +30,31 @@ export const fetchInitialData = async () => {
     }
 
   } catch (error) {
-    // Gracefully handle network/CORS errors without retrying (fast fail)
-    // This allows the app to immediately fallback to local data
     console.warn("API Connection unavailable (Offline Mode activated).");
     return null;
   }
 };
 
-// Helper for POST requests with no-cors to avoid Google Apps Script CORS issues
+// Helper for POST requests
+// CRITICAL FIX: Removed 'no-cors'. Using text/plain allows Simple Request (no preflight) 
+// but actually sends the body data, unlike no-cors which often strips it.
 const postData = async (body: any) => {
   try {
     await fetch(API_URL, {
       method: 'POST',
-      mode: 'no-cors', // Important for GAS POST requests from browser
+      redirect: 'follow', 
       headers: {
-        'Content-Type': 'text/plain' // Send as text/plain to avoid preflight issues
+        'Content-Type': 'text/plain;charset=utf-8' // Must be text/plain for GAS doPos
       },
       body: JSON.stringify(body)
     });
   } catch (error) {
-    // Silent fail for background saves in offline mode
-    console.warn("Background save failed (Offline)");
+    console.error("Background save failed", error);
   }
 };
 
 // FIXED: studentId changed to string | number but explicitly sent as String
 export const saveGrade = async (studentId: string | number, subject: string, semester: string, gradeData: any) => {
-  // Convert ID to String to ensure matching in Spreadsheet (avoids stacking/duplicates)
   await postData({ 
     action: 'saveGrade', 
     studentId: String(studentId), 
@@ -89,24 +87,17 @@ export const deleteStudent = async (id: number) => {
 };
 
 export const importStudents = async (students: Student[]) => {
-    // 1. Prepare clean data (remove heavy grade objects)
     const cleanStudents = students.map(s => {
         const { grades, gradesBySubject, ...rest } = s;
         return rest;
     });
 
-    // 2. CHUNKING: Send data in batches of 20 to prevent GAS Payload limit/Timeout
     const BATCH_SIZE = 20;
     
     for (let i = 0; i < cleanStudents.length; i += BATCH_SIZE) {
         const chunk = cleanStudents.slice(i, i + BATCH_SIZE);
-        
-        // Send batch
         await postData({ action: 'importStudents', students: chunk });
-        
-        // Add a small delay (300ms) between requests to be gentle on the server
         await new Promise(resolve => setTimeout(resolve, 300));
-        
         console.log(`Sent batch ${i / BATCH_SIZE + 1} of ${Math.ceil(cleanStudents.length / BATCH_SIZE)}`);
     }
 };
