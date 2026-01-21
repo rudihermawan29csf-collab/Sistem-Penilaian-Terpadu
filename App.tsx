@@ -113,7 +113,7 @@ const defaultSettings: AppSettings = {
 };
 
 const LOCAL_STORAGE_KEY = 'igrade_data_backup_v2';
-const SESSION_STORAGE_KEY = 'igrade_user_session_v2'; // Key for persisting login state
+const SESSION_STORAGE_KEY = 'igrade_user_session_v2'; 
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -151,6 +151,41 @@ const App: React.FC = () => {
   // Admin Specific State
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+
+  // --- COMPUTED PROPERTIES FOR TEACHER MULTI-SUBJECT SUPPORT ---
+  const teacherSubjects = useMemo(() => {
+      if (userRole === 'teacher' && userData?.name) {
+          // Find all unique subjects for this teacher name (handling multiple rows for same teacher)
+          return Array.from(new Set(
+              teachers.filter(t => t.name === userData.name).map(t => t.subject)
+          )).sort();
+      }
+      return [];
+  }, [userRole, userData, teachers]);
+
+  const teacherClassesForSelectedSubject = useMemo(() => {
+      if (userRole === 'teacher' && userData?.name) {
+          // Get classes SPECIFIC to the selected subject
+          const specificEntry = teachers.find(t => t.name === userData.name && t.subject === selectedSubject);
+          if (specificEntry) return specificEntry.classes;
+          
+          // Fallback: If no subject match, combine all classes
+          const allClasses = teachers.filter(t => t.name === userData.name).flatMap(t => t.classes);
+          return Array.from(new Set(allClasses)).sort();
+      }
+      // For Admin, show all available classes in system
+      return Array.from(new Set(students.map(s => s.kelas))).sort();
+  }, [userRole, userData, teachers, selectedSubject, students]);
+
+  // Effect to validate/reset selected class when subject changes (for teachers)
+  useEffect(() => {
+      if (userRole === 'teacher' && teacherClassesForSelectedSubject.length > 0) {
+          if (!teacherClassesForSelectedSubject.includes(selectedClass)) {
+              setSelectedClass(teacherClassesForSelectedSubject[0]);
+          }
+      }
+  }, [selectedSubject, teacherClassesForSelectedSubject, userRole, selectedClass]);
+
 
   // --- LOCAL STORAGE HELPERS ---
   const saveToLocalStorage = useCallback(() => {
@@ -196,7 +231,6 @@ const App: React.FC = () => {
               localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
           } catch(e) { console.warn("Failed to save session", e); }
       } else if (!loading) {
-          // Only clear if explicitly logged out (not during initial load)
           localStorage.removeItem(SESSION_STORAGE_KEY);
       }
   }, [userRole, userData, selectedClass, selectedSubject, activeTab, loading]);
@@ -249,9 +283,8 @@ const App: React.FC = () => {
     if (finalData) {
         setConnectionStatus(status);
         
-        // --- DATA SANITIZATION (Fix for "Data Offline/Lokal" corruption) ---
+        // --- DATA SANITIZATION ---
         if (finalData.students) {
-            // Ensure every student has the correct structure even if coming from old local data
             const sanitizedStudents = (finalData.students as Student[]).map(s => ({
                 ...s,
                 gradesBySubject: s.gradesBySubject || {},
@@ -267,7 +300,6 @@ const App: React.FC = () => {
         if (finalData.history) setAssessmentHistory(finalData.history);
         if (finalData.settings) {
             let loadedSettings = finalData.settings;
-            // Migrations
             if (Array.isArray(loadedSettings.kokurikulerProjects)) {
                 loadedSettings.kokurikulerProjects = {
                     ganjil: loadedSettings.kokurikulerProjects,
@@ -294,7 +326,7 @@ const App: React.FC = () => {
         setShowOfflineBanner(true);
     }
 
-    // --- RESTORE SESSION (Keep user logged in offline) ---
+    // --- RESTORE SESSION ---
     try {
         const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
         if (savedSession) {
@@ -363,21 +395,18 @@ const App: React.FC = () => {
     setUserRole(role);
     
     if (role === 'teacher') {
-        const teacher = teachers.find(t => t.name === data.name);
-        if (teacher) {
-            setUserData(teacher);
-            setSelectedSubject(teacher.subject);
-            // Default selected class to first one they teach
-            if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
+        // Just store basic data, subjects and classes will be computed dynamically
+        setUserData(data); // data contains { name: '...' }
+        
+        // Find teacher's primary subject to set default
+        const teacherRows = teachers.filter(t => t.name === data.name);
+        if (teacherRows.length > 0) {
+            setSelectedSubject(teacherRows[0].subject);
+            if (teacherRows[0].classes.length > 0) setSelectedClass(teacherRows[0].classes[0]);
         } else {
-            // Fallback
-            setUserData({ 
-                name: data.name, 
-                classes: [], 
-                subject: 'Mapel Umum',
-                nip: '-'
-            }); 
+            setSelectedSubject('Mapel Umum');
         }
+        
         setActiveTab('dashboard'); 
     } else if (role === 'admin') {
         setUserData({ name: 'Administrator' });
@@ -456,7 +485,6 @@ const App: React.FC = () => {
           setShowSaveSuccess(true);
           setTimeout(() => setShowSaveSuccess(false), 2000);
       } else if (connectionStatus === 'local') {
-          // If in local mode, manual save triggers force sync prompt
           if(window.confirm("Koneksi server belum aktif. Ingin mencoba upload paksa data lokal ke server?")) {
               handleForceUpload();
           }
@@ -633,11 +661,17 @@ const App: React.FC = () => {
       }
 
       const dataRows = targets.map((s, idx) => {
-          const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
+          // SAFE GUARD: Handle missing gradesBySubject
+          let grades = selectedSubject === 'Pendidikan Agama Islam' 
+              ? s.grades[settings.activeSemester] 
+              : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
+          
+          if (!grades) {
+              grades = createEmptySemesterData();
+          }
+
           const row = [idx + 1, s.nis, s.name];
           
-          if (!grades) return row;
-
           (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
               if (visible[c]) {
                   const fields = activeFields[c];
@@ -670,139 +704,150 @@ const App: React.FC = () => {
   };
 
   const handleDownloadGradeTablePDF = () => {
-      const targets = getFilteredStudents();
-      if (targets.length === 0) return;
+      try {
+          const targets = getFilteredStudents();
+          if (targets.length === 0) return;
 
-      const doc = new jsPDF({ orientation: 'l', format: 'legal' });
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("REKAP NILAI AKADEMIK", 175, 15, { align: "center" });
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Mata Pelajaran: ${selectedSubject}`, 14, 25);
-      doc.text(`Kelas: ${selectedClass}`, 14, 30);
-      doc.text(`Semester: ${settings.activeSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 35);
-      doc.text(`Tahun Ajaran: ${settings.academicYear}`, 14, 40);
-
-      const activeFields = getActiveFieldsMap();
-      const visible = getVisibleChapters();
-      
-      const headerRow1: any[] = [
-          { content: 'No', rowSpan: 2, styles: { halign: 'center' } }, 
-          { content: 'Nama', rowSpan: 2, styles: { halign: 'left' } }
-      ];
-      const headerRow2: any[] = [];
-
-      (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
-          if (visible[c]) {
-              const fields = activeFields[c];
-              if (fields.length > 0) {
-                  headerRow1.push({ 
-                      content: c.replace('bab', 'TP ').toUpperCase(), 
-                      colSpan: fields.length,
-                      styles: { halign: 'center' }
-                  });
-                  fields.forEach(f => {
-                      headerRow2.push({
-                          content: f === 'sum' ? 'Sum' : f.toUpperCase(),
-                          styles: { halign: 'center' }
-                      });
-                  });
-              } else {
-                  headerRow1.push({ content: c.replace('bab', 'TP '), rowSpan: 2 });
-              }
-          }
-      });
-
-      headerRow1.push({ content: 'KTS', rowSpan: 2 });
-      headerRow1.push({ content: 'SAS', rowSpan: 2 });
-      headerRow1.push({ content: 'NA', rowSpan: 2 });
-      if (activeTab === 'nilai_up') headerRow1.push({ content: 'UP', rowSpan: 2 });
-
-      const body = targets.map((s, idx) => {
-          const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
-          if (!grades) return [];
-
-          const row = [idx + 1, s.name];
+          const doc = new jsPDF({ orientation: 'l', format: 'legal' });
+          doc.setFontSize(14);
+          doc.setFont("helvetica", "bold");
+          doc.text("REKAP NILAI AKADEMIK", 175, 15, { align: "center" });
           
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "normal");
+          doc.text(`Mata Pelajaran: ${selectedSubject}`, 14, 25);
+          doc.text(`Kelas: ${selectedClass}`, 14, 30);
+          doc.text(`Semester: ${settings.activeSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 35);
+          doc.text(`Tahun Ajaran: ${settings.academicYear}`, 14, 40);
+
+          const activeFields = getActiveFieldsMap();
+          const visible = getVisibleChapters();
+          
+          const headerRow1: any[] = [
+              { content: 'No', rowSpan: 2, styles: { halign: 'center' } }, 
+              { content: 'Nama', rowSpan: 2, styles: { halign: 'left' } }
+          ];
+          const headerRow2: any[] = [];
+
           (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
               if (visible[c]) {
                   const fields = activeFields[c];
                   if (fields.length > 0) {
+                      headerRow1.push({ 
+                          content: c.replace('bab', 'TP ').toUpperCase(), 
+                          colSpan: fields.length,
+                          styles: { halign: 'center' }
+                      });
                       fields.forEach(f => {
-                          const val = grades[c][f];
-                          row.push(val !== null ? val : '-');
+                          headerRow2.push({
+                              content: f === 'sum' ? 'Sum' : f.toUpperCase(),
+                              styles: { halign: 'center' }
+                          });
                       });
                   } else {
-                      row.push('-'); 
+                      headerRow1.push({ content: c.replace('bab', 'TP '), rowSpan: 2 });
                   }
               }
           });
 
-          row.push(grades.kts !== null ? grades.kts : '-');
-          row.push(grades.sas !== null ? grades.sas : '-');
-          const na = calculateFinalGrade(grades, activeFields, visible);
-          row.push(na !== null ? na : '-');
+          headerRow1.push({ content: 'KTS', rowSpan: 2 });
+          headerRow1.push({ content: 'SAS', rowSpan: 2 });
+          headerRow1.push({ content: 'NA', rowSpan: 2 });
+          if (activeTab === 'nilai_up') headerRow1.push({ content: 'UP', rowSpan: 2 });
+
+          const body = targets.map((s, idx) => {
+              // SAFE GUARD: Handle missing grades
+              let grades = selectedSubject === 'Pendidikan Agama Islam' 
+                  ? s.grades[settings.activeSemester] 
+                  : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
+              
+              if (!grades) {
+                  grades = createEmptySemesterData();
+              }
+
+              const row = [idx + 1, s.name];
+              
+              (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
+                  if (visible[c]) {
+                      const fields = activeFields[c];
+                      if (fields.length > 0) {
+                          fields.forEach(f => {
+                              const val = grades[c][f];
+                              row.push(val !== null ? val : '-');
+                      });
+                      } else {
+                          row.push('-'); 
+                      }
+                  }
+              });
+
+              row.push(grades.kts !== null ? grades.kts : '-');
+              row.push(grades.sas !== null ? grades.sas : '-');
+              const na = calculateFinalGrade(grades, activeFields, visible);
+              row.push(na !== null ? na : '-');
+              
+              if (activeTab === 'nilai_up') row.push(grades.nilaiUp !== null ? grades.nilaiUp : '-');
+
+              return row;
+          });
+
+          autoTable(doc, {
+              startY: 45,
+              head: [headerRow1, headerRow2],
+              body: body,
+              theme: 'grid',
+              styles: { fontSize: 8, cellPadding: 1 },
+              headStyles: { fillColor: [41, 128, 185], textColor: 255, halign: 'center', valign: 'middle', lineWidth: 0.1, lineColor: 255 },
+              columnStyles: { 0: { halign: 'center', cellWidth: 10 } }
+          });
+
+          let yPos = (doc as any).lastAutoTable.finalY + 10;
+          if (yPos > 170) { 
+              doc.addPage();
+              yPos = 20;
+          }
+
+          let teacherName = settings.teacherName;
+          let teacherNip = settings.teacherNip;
           
-          if (activeTab === 'nilai_up') row.push(grades.nilaiUp !== null ? grades.nilaiUp : '-');
+          const subjectTeacher = teachers.find(t => t.subject === selectedSubject && t.classes.includes(selectedClass));
+          if (subjectTeacher) {
+              teacherName = subjectTeacher.name;
+              teacherNip = subjectTeacher.nip;
+          } else if (selectedSubject === 'Pendidikan Agama Islam' && userData?.subject === 'Pendidikan Agama Islam') {
+              teacherName = userData.name;
+              teacherNip = userData.nip || '-';
+          }
 
-          return row;
-      });
+          const date = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+          const pageWidth = doc.internal.pageSize.width;
+          const rightX = pageWidth - 60;
+          const leftX = 40;
 
-      autoTable(doc, {
-          startY: 45,
-          head: [headerRow1, headerRow2],
-          body: body,
-          theme: 'grid',
-          styles: { fontSize: 8, cellPadding: 1 },
-          headStyles: { fillColor: [41, 128, 185], textColor: 255, halign: 'center', valign: 'middle', lineWidth: 0.1, lineColor: 255 },
-          columnStyles: { 0: { halign: 'center', cellWidth: 10 } }
-      });
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "normal");
 
-      let yPos = (doc as any).lastAutoTable.finalY + 10;
-      if (yPos > 170) { 
-          doc.addPage();
-          yPos = 20;
+          doc.text(`Mojokerto, ${date}`, rightX, yPos, { align: 'center' });
+          doc.text("Guru Mata Pelajaran", rightX, yPos + 5, { align: 'center' });
+
+          doc.text("Mengetahui,", leftX, yPos, { align: 'center' });
+          doc.text("Kepala Sekolah", leftX, yPos + 5, { align: 'center' });
+
+          yPos += 25;
+
+          doc.setFont("helvetica", "bold");
+          doc.text(teacherName, rightX, yPos, { align: 'center' });
+          doc.text(settings.principalName, leftX, yPos, { align: 'center' });
+
+          doc.setFont("helvetica", "normal");
+          doc.text(`NIP. ${teacherNip || '-'}`, rightX, yPos + 5, { align: 'center' });
+          doc.text(`NIP. ${settings.principalNip}`, leftX, yPos + 5, { align: 'center' });
+
+          doc.save(`Nilai_${selectedSubject}_${selectedClass}.pdf`);
+      } catch (err) {
+          console.error("PDF Generation Error", err);
+          alert("Gagal membuat PDF. Pastikan data nilai sudah terisi dengan benar.");
       }
-
-      let teacherName = settings.teacherName;
-      let teacherNip = settings.teacherNip;
-      
-      const subjectTeacher = teachers.find(t => t.subject === selectedSubject && t.classes.includes(selectedClass));
-      if (subjectTeacher) {
-          teacherName = subjectTeacher.name;
-          teacherNip = subjectTeacher.nip;
-      } else if (selectedSubject === 'Pendidikan Agama Islam' && userData?.subject === 'Pendidikan Agama Islam') {
-          teacherName = userData.name;
-          teacherNip = userData.nip || '-';
-      }
-
-      const date = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-      const pageWidth = doc.internal.pageSize.width;
-      const rightX = pageWidth - 60;
-      const leftX = 40;
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-
-      doc.text(`Mojokerto, ${date}`, rightX, yPos, { align: 'center' });
-      doc.text("Guru Mata Pelajaran", rightX, yPos + 5, { align: 'center' });
-
-      doc.text("Mengetahui,", leftX, yPos, { align: 'center' });
-      doc.text("Kepala Sekolah", leftX, yPos + 5, { align: 'center' });
-
-      yPos += 25;
-
-      doc.setFont("helvetica", "bold");
-      doc.text(teacherName, rightX, yPos, { align: 'center' });
-      doc.text(settings.principalName, leftX, yPos, { align: 'center' });
-
-      doc.setFont("helvetica", "normal");
-      doc.text(`NIP. ${teacherNip || '-'}`, rightX, yPos + 5, { align: 'center' });
-      doc.text(`NIP. ${settings.principalNip}`, leftX, yPos + 5, { align: 'center' });
-
-      doc.save(`Nilai_${selectedSubject}_${selectedClass}.pdf`);
   };
 
   const getActiveFieldsMap = () => {
@@ -849,48 +894,42 @@ const App: React.FC = () => {
     return (
       <>
         {offlineMode && showOfflineBanner && (
-            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down ${connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'}`}>
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4 ${connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'}`}>
                 <div className="flex items-center gap-2">
-                    {connectionStatus === 'local' ? <HardDrive size={14} /> : <WifiOff size={14} />}
-                    <span>
-                        {connectionStatus === 'local' 
-                            ? 'Mode Offline (Backup Lokal Aktif)' 
-                            : 'Koneksi Terputus: Tidak dapat memuat data.'}
-                    </span>
+                    {connectionStatus === 'local' ? <HardDrive size={12} /> : <WifiOff size={12} />}
+                    <span>{connectionStatus === 'local' ? 'Mode Offline (Backup Lokal Aktif)' : 'Koneksi Terputus'}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {connectionStatus === 'local' && (
                         <button 
                             onClick={handleForceUpload} 
-                            className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors animate-pulse"
+                            className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors animate-pulse"
                         >
                             <CloudUpload size={12} /> Paksa Upload
                         </button>
                     )}
-                    <button 
-                        onClick={handleRetryConnection} 
-                        className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors"
-                    >
+                    <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
                         <RefreshCcw size={10} /> Coba Lagi
                     </button>
-                    <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded">
+                    <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-0.5 hover:bg-black/10 rounded">
                         <X size={12} />
                     </button>
                 </div>
             </div>
         )}
+        
         {(syncMessage) && (
-            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down bg-blue-600/95`}>
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down bg-blue-600/95`}>
                 <div className="flex items-center gap-2">
-                    <SyncIcon size={14} className="animate-spin" />
+                    <SyncIcon size={12} className="animate-spin"/>
                     <span>{syncMessage}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <button 
                         onClick={handleForceUpload} 
-                        className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                        className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors"
                     >
-                        <CloudUpload size={12} /> Upload Sekarang
+                        <CloudUpload size={12} /> Upload
                     </button>
                 </div>
             </div>
@@ -1172,10 +1211,17 @@ const App: React.FC = () => {
                                     onChange={e => setSelectedClass(e.target.value)}
                                     className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
                                 >
-                                    {userData?.classes?.length > 0 
-                                      ? userData.classes.map((c: string) => <option key={c} value={c}>{c}</option>)
-                                      : Array.from(new Set(students.map(s => s.kelas))).sort().map(c => <option key={c} value={c}>{c}</option>)
-                                    }
+                                    {/* TEACHER LOGIC: Show classes based on selected subject */}
+                                    {userRole === 'teacher' ? (
+                                        teacherClassesForSelectedSubject.length > 0 ? (
+                                            teacherClassesForSelectedSubject.map(c => <option key={c} value={c}>{c}</option>)
+                                        ) : (
+                                            <option value="">Tidak ada kelas</option>
+                                        )
+                                    ) : (
+                                        /* ADMIN LOGIC: Show all classes */
+                                        Array.from(new Set(students.map(s => s.kelas))).sort().map(c => <option key={c} value={c}>{c}</option>)
+                                    )}
                                 </select>
                                 
                                 <select 
@@ -1184,7 +1230,11 @@ const App: React.FC = () => {
                                     className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
                                 >
                                     {userRole === 'teacher' ? (
-                                        <option value={userData?.subject}>{userData?.subject}</option>
+                                        teacherSubjects.length > 0 ? (
+                                            teacherSubjects.map(s => <option key={s} value={s}>{s}</option>)
+                                        ) : (
+                                            <option value={userData?.subject}>{userData?.subject}</option>
+                                        )
                                     ) : (
                                         <>
                                             <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
