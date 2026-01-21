@@ -97,7 +97,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
           setError('Pilih kelas.');
           return;
       }
-      if (leaderPassword === 'ketua123') {
+      
+      // Password check for Leader (Default: 123456)
+      if (leaderPassword.trim() === '123456') {
           onLogin('leader', { className: leaderClass });
       } else {
           setError('Password ketua kelas salah.');
@@ -300,8 +302,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
                             </select>
                         </div>
                     </div>
+                    
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-white ml-1">Password Ketua Kelas</label>
+                        <label className="text-xs font-medium text-white ml-1">Password</label>
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/70">
                                 <KeyRound size={16} />
@@ -311,11 +314,12 @@ const LoginPage: React.FC<LoginPageProps> = ({
                                 value={leaderPassword}
                                 onChange={(e) => setLeaderPassword(e.target.value)}
                                 className="w-full pl-9 pr-4 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm backdrop-blur-md font-medium"
-                                placeholder="ketua123"
+                                placeholder="Password"
                                 required
                             />
                         </div>
                     </div>
+
                     <button type="submit" className="w-full mt-2 bg-white/90 hover:bg-white text-emerald-900 font-bold py-2.5 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
                         <ClipboardList size={16} />
                         <span>Masuk Ketua Kelas</span>
