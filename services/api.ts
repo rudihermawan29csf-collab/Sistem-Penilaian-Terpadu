@@ -9,7 +9,7 @@ export const fetchInitialData = async () => {
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
         method: 'GET',
         redirect: 'follow',
-        credentials: 'omit', // WAJIB: Mencegah konflik cookie Google saat cross-origin
+        credentials: 'omit', // WAJIB: Mencegah konflik cookie Google
     });
     
     if (!response.ok) {
