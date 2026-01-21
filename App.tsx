@@ -29,7 +29,7 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -114,6 +114,7 @@ const defaultSettings: AppSettings = {
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [offlineMode, setOfflineMode] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected'>('disconnected');
   const [showOfflineBanner, setShowOfflineBanner] = useState(true); 
   const [userRole, setUserRole] = useState<'admin' | 'teacher' | 'student' | 'leader' | null>(null);
   const [userData, setUserData] = useState<any>(null);
@@ -157,6 +158,7 @@ const App: React.FC = () => {
     const data = await api.fetchInitialData();
     
     if (data) {
+      setConnectionStatus('connected');
       if (data.students) setStudents(data.students);
       if (data.teachers) setTeachers(data.teachers);
       if (data.history) setAssessmentHistory(data.history);
@@ -180,6 +182,7 @@ const App: React.FC = () => {
       if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
       if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
     } else {
+        setConnectionStatus('disconnected');
         setOfflineMode(true);
         setShowOfflineBanner(true);
     }
@@ -269,7 +272,16 @@ const App: React.FC = () => {
             student.gradesBySubject![selectedSubject][settings.activeSemester] = targetSemesterData;
         }
         
-        api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData);
+        // Optimistic update
+        api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData).then(success => {
+            if (!success) {
+                // Ideally revert state here or show warning, but for now we rely on connection status
+                setConnectionStatus('disconnected');
+            } else {
+                setConnectionStatus('connected');
+            }
+        });
+        
         return student;
       }
       return student;
@@ -277,8 +289,14 @@ const App: React.FC = () => {
   };
 
   const handleManualSave = () => {
-      setShowSaveSuccess(true);
-      setTimeout(() => setShowSaveSuccess(false), 2000);
+      // Just a visual confirmation since data saves on change
+      // But we can check connection status here
+      if (connectionStatus === 'connected') {
+          setShowSaveSuccess(true);
+          setTimeout(() => setShowSaveSuccess(false), 2000);
+      } else {
+          alert("Gagal menyimpan: Tidak terhubung ke server. Periksa koneksi internet Anda.");
+      }
   };
 
   const handleSaveSession = (session: GradingSession) => {
@@ -287,14 +305,14 @@ const App: React.FC = () => {
     } else {
         setAssessmentHistory(prev => [...prev, session]);
     }
-    api.saveHistory(session);
+    api.saveHistory(session).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
     setEditingSession(null);
     setIsInputModalOpen(false);
   };
 
   const handleDeleteHistory = (id: string) => {
       setAssessmentHistory(prev => prev.filter(h => h.id !== id));
-      api.deleteHistory(id);
+      api.deleteHistory(id).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
   };
 
   const handleResetHistory = () => {
@@ -311,10 +329,10 @@ const App: React.FC = () => {
   const handleSaveStudent = (student: Student) => {
       if (editingStudent) {
           setStudents(prev => prev.map(s => s.id === student.id ? student : s));
-          api.updateStudent(student);
+          api.updateStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
       } else {
           setStudents(prev => [...prev, student]);
-          api.addStudent(student);
+          api.addStudent(student).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
       }
       setIsAddStudentModalOpen(false);
       setEditingStudent(null);
@@ -322,7 +340,7 @@ const App: React.FC = () => {
 
   const handleDeleteStudent = (id: number) => {
       setStudents(prev => prev.filter(s => s.id !== id));
-      api.deleteStudent(id);
+      api.deleteStudent(id).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
   };
 
   const handleImportStudents = (newStudents: Student[]) => {
@@ -336,7 +354,7 @@ const App: React.FC = () => {
           }
       });
       setStudents(mergedStudents);
-      api.importStudents(newStudents);
+      api.importStudents(newStudents).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
   };
 
   const handleUpdateStudentsBulk = (updatedStudents: Student[]) => {
@@ -347,7 +365,7 @@ const App: React.FC = () => {
   const handleSaveChapterConfig = (config: Record<ChapterKey, boolean>, fieldConfig: Record<ChapterKey, Record<FormativeKey, boolean>>) => {
       setSubjectChapterConfigs(prev => ({ ...prev, [selectedSubject]: config }));
       setSubjectFieldConfigs(prev => ({ ...prev, [selectedSubject]: fieldConfig }));
-      api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig });
+      api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig }).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
   };
 
   const handleResetClass = (className: string) => {
@@ -355,12 +373,13 @@ const App: React.FC = () => {
           if (s.kelas === className) { return s; }
           return s;
       }));
-      api.resetClassGrades(className, settings.activeSemester);
+      api.resetClassGrades(className, settings.activeSemester).then(ok => setConnectionStatus(ok ? 'connected' : 'disconnected'));
   };
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
       setSettings(newSettings);
-      await api.saveSettings(newSettings);
+      const ok = await api.saveSettings(newSettings);
+      setConnectionStatus(ok ? 'connected' : 'disconnected');
   };
 
   const handleSaveDailyAttendance = (log: DailyAttendanceLog) => {
@@ -882,6 +901,16 @@ const App: React.FC = () => {
             </nav>
 
             <div className="p-4 border-t border-white/5 bg-black/20 flex flex-col gap-2">
+                {/* Cloud Status Indicator */}
+                {!isSidebarCollapsed && (
+                    <div className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                        connectionStatus === 'connected' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                    }`}>
+                        {connectionStatus === 'connected' ? <Cloud size={14} /> : <CloudOff size={14} />}
+                        <span>{connectionStatus === 'connected' ? 'Server Terhubung' : 'Koneksi Terputus'}</span>
+                    </div>
+                )}
+
                 <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="hidden lg:flex w-full items-center justify-center p-2 bg-transparent text-indigo-300 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
                     {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
                 </button>

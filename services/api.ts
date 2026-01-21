@@ -9,8 +9,7 @@ export const fetchInitialData = async () => {
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
         method: 'GET',
         redirect: 'follow',
-        credentials: 'omit', // WAJIB: Mencegah konflik cookie Google
-        // Hapus headers kustom untuk GET agar menjadi Simple Request
+        credentials: 'omit', // WAJIB: Mencegah konflik cookie Google saat cross-origin
     });
     
     if (!response.ok) {
@@ -35,9 +34,10 @@ export const fetchInitialData = async () => {
 };
 
 // Helper for POST requests
-const postData = async (body: any) => {
+// Returns true if successful, false otherwise
+const postData = async (body: any): Promise<boolean> => {
   try {
-    await fetch(API_URL, {
+    const response = await fetch(API_URL, {
       method: 'POST',
       redirect: 'follow', 
       credentials: 'omit', // WAJIB: Mencegah error CORS/CORB
@@ -46,13 +46,15 @@ const postData = async (body: any) => {
       },
       body: JSON.stringify(body)
     });
+    return response.ok;
   } catch (error) {
     console.error("Background save failed", error);
+    return false;
   }
 };
 
 export const saveGrade = async (studentId: string | number, subject: string, semester: string, gradeData: any) => {
-  await postData({ 
+  return await postData({ 
     action: 'saveGrade', 
     studentId: String(studentId), 
     subject, 
@@ -62,25 +64,25 @@ export const saveGrade = async (studentId: string | number, subject: string, sem
 };
 
 export const saveHistory = async (session: GradingSession) => {
-  await postData({ action: 'saveHistory', session });
+  return await postData({ action: 'saveHistory', session });
 };
 
 export const deleteHistory = async (id: string) => {
-  await postData({ action: 'deleteHistory', id });
+  return await postData({ action: 'deleteHistory', id });
 };
 
 export const addStudent = async (student: Student) => {
     const { grades, gradesBySubject, ...studentData } = student;
-    await postData({ action: 'addStudent', student: studentData });
+    return await postData({ action: 'addStudent', student: studentData });
 };
 
 export const updateStudent = async (student: Student) => {
     const { grades, gradesBySubject, ...studentData } = student;
-    await postData({ action: 'updateStudent', student: studentData });
+    return await postData({ action: 'updateStudent', student: studentData });
 };
 
 export const deleteStudent = async (id: number) => {
-    await postData({ action: 'deleteStudent', id });
+    return await postData({ action: 'deleteStudent', id });
 };
 
 export const importStudents = async (students: Student[]) => {
@@ -90,31 +92,34 @@ export const importStudents = async (students: Student[]) => {
     });
 
     const BATCH_SIZE = 20;
+    let allSuccess = true;
     
     for (let i = 0; i < cleanStudents.length; i += BATCH_SIZE) {
         const chunk = cleanStudents.slice(i, i + BATCH_SIZE);
-        await postData({ action: 'importStudents', students: chunk });
+        const success = await postData({ action: 'importStudents', students: chunk });
+        if (!success) allSuccess = false;
         await new Promise(resolve => setTimeout(resolve, 300));
         console.log(`Sent batch ${i / BATCH_SIZE + 1} of ${Math.ceil(cleanStudents.length / BATCH_SIZE)}`);
     }
+    return allSuccess;
 };
 
 export const saveChapterConfig = async (subject: string, config: any) => {
-    await postData({ action: 'saveChapterConfig', subject, config });
+    return await postData({ action: 'saveChapterConfig', subject, config });
 };
 
 export const saveSettings = async (settings: AppSettings) => {
-    await postData({ action: 'saveSettings', settings });
+    return await postData({ action: 'saveSettings', settings });
 };
 
 export const resetClassGrades = async (className: string, semester: string) => {
-    await postData({ action: 'resetClassGrades', className, semester });
+    return await postData({ action: 'resetClassGrades', className, semester });
 };
 
 export const saveTeacher = async (teacher: Teacher) => {
-    await postData({ action: 'saveTeacher', teacher });
+    return await postData({ action: 'saveTeacher', teacher });
 };
 
 export const deleteTeacher = async (id: number) => {
-    await postData({ action: 'deleteTeacher', id });
+    return await postData({ action: 'deleteTeacher', id });
 };
