@@ -1,12 +1,12 @@
 
 import React, { useState } from 'react';
 import { AppSettings, ChapterKey, FormativeKey, KokurikulerProject, Teacher, UpRange } from '../types';
-import { Save, School, KeyRound, Calendar, Image as ImageIcon, FileText, CheckSquare, Square, Plus, Trash2, BookOpen, Building2, Award, TrendingUp, ChevronRight, Library, Layout, Shield } from 'lucide-react';
+import { Save, School, KeyRound, Calendar, Image as ImageIcon, FileText, CheckSquare, Square, Plus, Trash2, BookOpen, Building2, Award, TrendingUp, ChevronRight, Library, Layout, Shield, Loader2 } from 'lucide-react';
 
 interface SettingsViewProps {
   settings: AppSettings;
   teachers?: Teacher[];
-  onSaveSettings: (settings: AppSettings) => void;
+  onSaveSettings: (settings: AppSettings) => Promise<void>;
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ settings, teachers = [], onSaveSettings }) => {
@@ -14,6 +14,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, teachers = [], on
   const [p5Semester, setP5Semester] = useState<'ganjil' | 'genap'>('ganjil');
   const [newUpRange, setNewUpRange] = useState<UpRange>({ min: 0, max: 0, value: 0 });
   const [newSubject, setNewSubject] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   
   // Tab State
   const [activeTab, setActiveTab] = useState<'general' | 'academic' | 'assessment' | 'extra' | 'security'>('general');
@@ -158,8 +159,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, teachers = [], on
       setFormData(prev => ({ ...prev, upRanges: updatedRanges }));
   };
 
-  const handleSave = () => {
-    onSaveSettings(formData);
+  const handleSave = async () => {
+    setIsSaving(true);
+    await onSaveSettings(formData);
+    setIsSaving(false);
     alert('Pengaturan berhasil disimpan!');
   };
 
@@ -204,10 +207,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, teachers = [], on
                 </div>
                 <button 
                     onClick={handleSave}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-[#007aff] text-white rounded-xl font-bold hover:bg-blue-600 transition-all shadow-lg active:scale-95 text-sm"
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-[#007aff] text-white rounded-xl font-bold hover:bg-blue-600 transition-all shadow-lg active:scale-95 text-sm disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                    <Save size={18} />
-                    Simpan Perubahan
+                    {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                    {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </div>
 
@@ -337,7 +341,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, teachers = [], on
 
                 {/* 1.5 DAFTAR MATA PELAJARAN */}
                 <section className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
-                    {/* ... (Existing Subject Logic) ... */}
                     <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2 pb-2 border-b border-gray-100">
                         <Library size={20} className="text-indigo-600"/> Daftar Mata Pelajaran
                     </h3>
@@ -407,7 +410,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, teachers = [], on
               </>
           )}
 
-          {/* ... Rest of tabs (Assessment, Extra, Security) same as before ... */}
+          {/* ... Rest of tabs (Assessment, Extra, Security) ... */}
           {activeTab === 'assessment' && (
               <>
                 {/* 3. NILAI UP (UJIAN PRAKTEK) */}

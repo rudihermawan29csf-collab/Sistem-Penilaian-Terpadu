@@ -9,9 +9,8 @@ export const fetchInitialData = async () => {
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
         method: 'GET',
         redirect: 'follow',
-        headers: {
-            'Content-Type': 'text/plain;charset=utf-8',
-        }
+        credentials: 'omit', // WAJIB: Mencegah konflik cookie Google
+        // Hapus headers kustom untuk GET agar menjadi Simple Request
     });
     
     if (!response.ok) {
@@ -36,15 +35,14 @@ export const fetchInitialData = async () => {
 };
 
 // Helper for POST requests
-// CRITICAL FIX: Removed 'no-cors'. Using text/plain allows Simple Request (no preflight) 
-// but actually sends the body data, unlike no-cors which often strips it.
 const postData = async (body: any) => {
   try {
     await fetch(API_URL, {
       method: 'POST',
       redirect: 'follow', 
+      credentials: 'omit', // WAJIB: Mencegah error CORS/CORB
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8' // Must be text/plain for GAS doPos
+        'Content-Type': 'text/plain;charset=utf-8' // Text/plain agar tidak preflight
       },
       body: JSON.stringify(body)
     });
@@ -53,7 +51,6 @@ const postData = async (body: any) => {
   }
 };
 
-// FIXED: studentId changed to string | number but explicitly sent as String
 export const saveGrade = async (studentId: string | number, subject: string, semester: string, gradeData: any) => {
   await postData({ 
     action: 'saveGrade', 

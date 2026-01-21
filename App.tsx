@@ -358,9 +358,9 @@ const App: React.FC = () => {
       api.resetClassGrades(className, settings.activeSemester);
   };
 
-  const handleSaveSettings = (newSettings: AppSettings) => {
+  const handleSaveSettings = async (newSettings: AppSettings) => {
       setSettings(newSettings);
-      api.saveSettings(newSettings);
+      await api.saveSettings(newSettings);
   };
 
   const handleSaveDailyAttendance = (log: DailyAttendanceLog) => {
@@ -737,9 +737,6 @@ const App: React.FC = () => {
     );
   }
 
-  // ... (Leader and Main Layout remain identical, just added retry logic) ...
-  // Returning the rest of the component as previously defined but with retry button logic injected into the banner.
-  
   // Leader View
   if (userRole === 'leader' && userData) {
       return (
