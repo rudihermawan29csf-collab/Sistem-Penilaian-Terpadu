@@ -29,7 +29,7 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff, HardDrive, RefreshCw as SyncIcon
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff, HardDrive, RefreshCw as SyncIcon, UploadCloud
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -158,7 +158,7 @@ const App: React.FC = () => {
           students,
           teachers,
           history: assessmentHistory,
-          settings, // settings.lastUpdated should have been updated by modify functions
+          settings, 
           dailyAttendance,
           chapterConfigs: subjectChapterConfigs,
           fieldConfigs: subjectFieldConfigs,
@@ -209,14 +209,8 @@ const App: React.FC = () => {
         if (localTime > serverTime) {
             console.log("Using Local Data (Newer than Server)", localTime, serverTime);
             finalData = localData;
-            status = 'local'; // Temporarily local, but we have internet
-            setSyncMessage("Data lokal lebih baru. Menyimpan ke server...");
-            
-            // Background Sync: Push settings to server to update timestamp
-            api.saveSettings(localData.settings).then(() => {
-                setSyncMessage(null);
-                setConnectionStatus('connected');
-            });
+            status = 'local'; // Temporarily local to allow force sync
+            setSyncMessage("Data lokal lebih baru. Mohon upload data ke server (Tombol di atas).");
         } else {
             console.log("Using Server Data (Newer or Equal)");
             finalData = apiData;
@@ -271,6 +265,37 @@ const App: React.FC = () => {
 
   const handleRetryConnection = () => {
       loadData();
+  };
+
+  const handleForceUpload = async () => {
+      if(!window.confirm("PERHATIAN: Ini akan menimpa data di Google Sheets dengan data yang ada di laptop ini. Pastikan URL Script sudah benar. Lanjutkan?")) return;
+      
+      setSyncMessage("Mengupload semua data lokal ke server...");
+      
+      // Update timestamp before sending
+      const now = new Date().getTime();
+      const newSettings = { ...settings, lastUpdated: now };
+      setSettings(newSettings);
+
+      const success = await api.syncFullData(
+          students,
+          teachers,
+          assessmentHistory,
+          newSettings,
+          dailyAttendance,
+          subjectChapterConfigs,
+          subjectFieldConfigs
+      );
+
+      if (success) {
+          alert("Berhasil! Data telah tersimpan di server (cloud). Sekarang perangkat lain bisa mengakses data ini.");
+          setSyncMessage(null);
+          setConnectionStatus('connected');
+          setOfflineMode(false);
+      } else {
+          alert("Gagal upload. Periksa koneksi internet atau pastikan URL Script API di 'services/api.ts' sudah benar.");
+          setSyncMessage(null);
+      }
   };
 
   // Helper to update timestamp in settings
@@ -357,8 +382,6 @@ const App: React.FC = () => {
         }
         
         // Optimistic update API call
-        // NOTE: Ideally we should update timestamp on every grade change, but that triggers full setting save.
-        // For grade data, the sheet logic is separate. We rely on local storage for persistence.
         api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData).then(success => {
             if (!success && connectionStatus === 'connected') setConnectionStatus('local');
             else if (success) setConnectionStatus('connected');
@@ -369,19 +392,20 @@ const App: React.FC = () => {
       return student;
     }));
     
-    // Trigger timestamp update for local backup validity
     updateTimestamp();
   };
 
   const handleManualSave = async () => {
       if (connectionStatus === 'connected') {
-          // Force push local settings with new timestamp to ensure server is updated
           const ts = updateTimestamp();
           await api.saveSettings({...settings, lastUpdated: ts});
           setShowSaveSuccess(true);
           setTimeout(() => setShowSaveSuccess(false), 2000);
       } else if (connectionStatus === 'local') {
-          alert("Tersimpan di Browser (Lokal). Koneksi server terputus. Data akan disinkronkan saat online.");
+          // If in local mode, manual save triggers force sync prompt
+          if(window.confirm("Koneksi server belum aktif. Ingin mencoba upload paksa data lokal ke server?")) {
+              handleForceUpload();
+          }
       } else {
           alert("Gagal menyimpan: Tidak terhubung ke server.");
       }
@@ -477,7 +501,6 @@ const App: React.FC = () => {
       const now = new Date().getTime();
       const settingsWithTs = { ...newSettings, lastUpdated: now };
       setSettings(settingsWithTs);
-      // Wait for save to ensure server has new timestamp
       const ok = await api.saveSettings(settingsWithTs);
       setConnectionStatus(ok ? 'connected' : 'local');
   };
@@ -495,7 +518,7 @@ const App: React.FC = () => {
       updateTimestamp();
   };
 
-  // --- DOWNLOAD HANDLERS (Grade Table) ---
+  // --- DOWNLOAD HANDLERS ---
   const getFilteredStudents = () => selectedClass ? students.filter(s => s.kelas === selectedClass) : [];
 
   const handleDownloadGradeTableExcel = () => {
@@ -506,39 +529,30 @@ const App: React.FC = () => {
       const headerRow1: any[] = ["No", "NIS", "Nama"];
       const headerRow2: any[] = [null, null, null];
       const merges: any[] = [
-          { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, // No
-          { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } }, // NIS
-          { s: { r: 0, c: 2 }, e: { r: 1, c: 2 } }, // Nama
+          { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } },
+          { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
+          { s: { r: 0, c: 2 }, e: { r: 1, c: 2 } },
       ];
 
       let currentColIndex = 3;
 
-      // Build Headers with Merges
       (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
           if (visible[c]) {
               const fields = activeFields[c];
               if (fields.length > 0) {
-                  // Add Top Header (TP X)
                   headerRow1.push(c.replace('bab', 'TP ').toUpperCase());
-                  // Fill remaining top header columns with null for merging
                   for (let i = 1; i < fields.length; i++) {
                       headerRow1.push(null);
                   }
-                  
-                  // Add Merge info
                   merges.push({
                       s: { r: 0, c: currentColIndex },
                       e: { r: 0, c: currentColIndex + fields.length - 1 }
                   });
-
-                  // Add Sub Headers (F1, F2...)
                   fields.forEach(f => {
                       headerRow2.push(f === 'sum' ? 'Sum' : f.toUpperCase());
                   });
-
                   currentColIndex += fields.length;
               } else {
-                  // Fallback if no active fields but chapter is visible (shouldn't happen often)
                   headerRow1.push(c.replace('bab', 'TP ').toUpperCase());
                   headerRow2.push('-');
                   currentColIndex++;
@@ -546,7 +560,6 @@ const App: React.FC = () => {
           }
       });
 
-      // KTS, SAS, NA
       headerRow1.push("KTS"); headerRow2.push(null);
       merges.push({ s: { r: 0, c: currentColIndex }, e: { r: 1, c: currentColIndex } });
       currentColIndex++;
@@ -565,7 +578,6 @@ const App: React.FC = () => {
           currentColIndex++;
       }
 
-      // Build Data Rows
       const dataRows = targets.map((s, idx) => {
           const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
           const row = [idx + 1, s.nis, s.name];
@@ -596,13 +608,8 @@ const App: React.FC = () => {
           return row;
       });
 
-      // Construct Workbook manually using AOA (Array of Arrays)
       const ws = XLSX.utils.aoa_to_sheet([headerRow1, headerRow2, ...dataRows]);
-      
-      // Apply merges
       ws['!merges'] = merges;
-
-      // Add worksheet to workbook
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Nilai ${selectedClass}`);
       XLSX.writeFile(wb, `Nilai_${selectedSubject}_${selectedClass}.xlsx`);
@@ -613,7 +620,6 @@ const App: React.FC = () => {
       if (targets.length === 0) return;
 
       const doc = new jsPDF({ orientation: 'l', format: 'legal' });
-      
       doc.setFontSize(14);
       doc.setFont("helvetica", "bold");
       doc.text("REKAP NILAI AKADEMIK", 175, 15, { align: "center" });
@@ -628,24 +634,21 @@ const App: React.FC = () => {
       const activeFields = getActiveFieldsMap();
       const visible = getVisibleChapters();
       
-      // Construct Nested Headers for PDF
       const headerRow1: any[] = [
           { content: 'No', rowSpan: 2, styles: { halign: 'center' } }, 
           { content: 'Nama', rowSpan: 2, styles: { halign: 'left' } }
       ];
-      const headerRow2: any[] = []; // Sub headers
+      const headerRow2: any[] = [];
 
       (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
           if (visible[c]) {
               const fields = activeFields[c];
               if (fields.length > 0) {
-                  // Add Parent Header
                   headerRow1.push({ 
                       content: c.replace('bab', 'TP ').toUpperCase(), 
                       colSpan: fields.length,
                       styles: { halign: 'center' }
                   });
-                  // Add Sub Headers
                   fields.forEach(f => {
                       headerRow2.push({
                           content: f === 'sum' ? 'Sum' : f.toUpperCase(),
@@ -653,7 +656,6 @@ const App: React.FC = () => {
                       });
                   });
               } else {
-                  // Fallback
                   headerRow1.push({ content: c.replace('bab', 'TP '), rowSpan: 2 });
               }
           }
@@ -704,7 +706,6 @@ const App: React.FC = () => {
           columnStyles: { 0: { halign: 'center', cellWidth: 10 } }
       });
 
-      // --- SIGNATURES ---
       let yPos = (doc as any).lastAutoTable.finalY + 10;
       if (yPos > 170) { 
           doc.addPage();
@@ -750,8 +751,6 @@ const App: React.FC = () => {
       doc.save(`Nilai_${selectedSubject}_${selectedClass}.pdf`);
   };
 
-  // --- RENDER HELPERS ---
-
   const getActiveFieldsMap = () => {
     const map: Record<ChapterKey, FormativeKey[]> = { bab1: [], bab2: [], bab3: [], bab4: [], bab5: [] };
     const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
@@ -780,8 +779,7 @@ const App: React.FC = () => {
       return subjectChapterConfigs[selectedSubject] || settings.visibleChapters;
   };
 
-  // --- UI COMPONENTS ---
-
+  // --- UI RENDER ---
   if (loading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7]">
@@ -807,6 +805,14 @@ const App: React.FC = () => {
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
+                    {connectionStatus === 'local' && (
+                        <button 
+                            onClick={handleForceUpload} 
+                            className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors animate-pulse"
+                        >
+                            <UploadCloud size={12} /> Paksa Upload
+                        </button>
+                    )}
                     <button 
                         onClick={handleRetryConnection} 
                         className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors"
@@ -815,6 +821,22 @@ const App: React.FC = () => {
                     </button>
                     <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded">
                         <X size={12} />
+                    </button>
+                </div>
+            </div>
+        )}
+        {(syncMessage) && (
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down bg-blue-600/95`}>
+                <div className="flex items-center gap-2">
+                    <SyncIcon size={14} className="animate-spin" />
+                    <span>{syncMessage}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handleForceUpload} 
+                        className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                    >
+                        <UploadCloud size={12} /> Upload Sekarang
                     </button>
                 </div>
             </div>
@@ -834,30 +856,16 @@ const App: React.FC = () => {
   // Student View
   if (userRole === 'student' && userData) {
     return (
-        <>
-            {offlineMode && showOfflineBanner && (
-                <div className="fixed top-0 left-0 right-0 z-[60] bg-yellow-600/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <HardDrive size={14} />
-                        <span>Mode Offline: Menggunakan data lokal (cache).</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded flex gap-1"><RefreshCcw size={10}/> Coba Lagi</button>
-                        <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded"><X size={12}/></button>
-                    </div>
-                </div>
-            )}
-            <StudentDashboard 
-                student={userData}
-                allStudents={students}
-                assessmentHistory={assessmentHistory}
-                settings={settings}
-                teachers={teachers}
-                onLogout={handleLogout}
-                subjectChapterConfigs={subjectChapterConfigs}
-                dailyAttendance={dailyAttendance}
-            />
-        </>
+        <StudentDashboard 
+            student={userData}
+            allStudents={students}
+            assessmentHistory={assessmentHistory}
+            settings={settings}
+            teachers={teachers}
+            onLogout={handleLogout}
+            subjectChapterConfigs={subjectChapterConfigs}
+            dailyAttendance={dailyAttendance}
+        />
     );
   }
 
@@ -872,6 +880,14 @@ const App: React.FC = () => {
                             <span>Mode Offline: Simpan lokal (browser) aktif.</span>
                         </div>
                         <div className="flex items-center gap-2">
+                            {connectionStatus === 'local' && (
+                                <button 
+                                    onClick={handleForceUpload} 
+                                    className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                                >
+                                    <UploadCloud size={12} /> Upload
+                                </button>
+                            )}
                             <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded flex gap-1"><RefreshCcw size={10}/> Coba Lagi</button>
                             <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded"><X size={12}/></button>
                         </div>
@@ -895,7 +911,6 @@ const App: React.FC = () => {
                     onSaveAttendance={handleSaveDailyAttendance}
                />
                
-               {/* Leader Help Button */}
                <button 
                   onClick={() => setIsGuideOpen(true)}
                   className="fixed bottom-6 right-6 p-3 bg-teal-600 text-white rounded-full shadow-xl hover:bg-teal-700 transition-transform hover:scale-110 z-50 animate-bounce-slow"
@@ -918,28 +933,48 @@ const App: React.FC = () => {
   return (
     <div className="h-screen bg-[#f5f5f7] flex overflow-hidden font-sans text-gray-900">
         
-        {/* Offline/Sync Banner */}
-        {(offlineMode && showOfflineBanner) || syncMessage ? (
-            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4 ${
-                syncMessage ? 'bg-blue-600/95' :
-                connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'
-            }`}>
+        {/* Offline Banner */}
+        {offlineMode && showOfflineBanner && (
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4 ${connectionStatus === 'local' ? 'bg-yellow-600/95' : 'bg-red-500/95'}`}>
                 <div className="flex items-center gap-2">
-                    {syncMessage ? <SyncIcon size={12} className="animate-spin"/> : (connectionStatus === 'local' ? <HardDrive size={12} /> : <WifiOff size={12} />)}
-                    <span>{syncMessage || (connectionStatus === 'local' ? 'Mode Offline (Backup Lokal Aktif)' : 'Koneksi Terputus')}</span>
+                    {connectionStatus === 'local' ? <HardDrive size={12} /> : <WifiOff size={12} />}
+                    <span>{connectionStatus === 'local' ? 'Mode Offline (Backup Lokal Aktif)' : 'Koneksi Terputus'}</span>
                 </div>
-                {!syncMessage && (
-                    <div className="flex items-center gap-2">
-                        <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
-                            <RefreshCcw size={10} /> Coba Lagi
+                <div className="flex items-center gap-2">
+                    {connectionStatus === 'local' && (
+                        <button 
+                            onClick={handleForceUpload} 
+                            className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors animate-pulse"
+                        >
+                            <UploadCloud size={12} /> Paksa Upload
                         </button>
-                        <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-0.5 hover:bg-black/10 rounded">
-                            <X size={12} />
-                        </button>
-                    </div>
-                )}
+                    )}
+                    <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
+                        <RefreshCcw size={10} /> Coba Lagi
+                    </button>
+                    <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-0.5 hover:bg-black/10 rounded">
+                        <X size={12} />
+                    </button>
+                </div>
             </div>
-        ) : null}
+        )}
+        
+        {(syncMessage) && (
+            <div className={`fixed top-0 left-0 right-0 z-[60] text-white text-xs font-bold py-1 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down bg-blue-600/95`}>
+                <div className="flex items-center gap-2">
+                    <SyncIcon size={12} className="animate-spin"/>
+                    <span>{syncMessage}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handleForceUpload} 
+                        className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors"
+                    >
+                        <UploadCloud size={12} /> Upload
+                    </button>
+                </div>
+            </div>
+        )}
 
         {/* Sidebar - Dark Indigo Theme */}
         <div className={`fixed inset-y-0 left-0 z-50 ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
@@ -980,11 +1015,9 @@ const App: React.FC = () => {
                 <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} collapsed={isSidebarCollapsed} />
                 
                 <SectionLabel label="Tugas Tambahan" collapsed={isSidebarCollapsed} />
-                {/* WALI KELAS MENU (Only if assigned) */}
                 {(userRole === 'admin' || (userRole === 'teacher' && userData?.waliKelas)) && (
                     <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} collapsed={isSidebarCollapsed} />
                 )}
-                {/* EXTRA MENU (Only if Coach) */}
                 {(userRole === 'admin' || (userRole === 'teacher' && settings.extracurriculars.some(e => e.coach === userData?.name))) && (
                     <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} collapsed={isSidebarCollapsed} />
                 )}
@@ -1011,7 +1044,6 @@ const App: React.FC = () => {
             </nav>
 
             <div className="p-4 border-t border-white/5 bg-black/20 flex flex-col gap-2">
-                {/* Cloud Status Indicator */}
                 {!isSidebarCollapsed && (
                     <div className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
                         connectionStatus === 'connected' ? 'bg-green-500/10 text-green-400' : 
@@ -1023,8 +1055,8 @@ const App: React.FC = () => {
                          <CloudOff size={14} />}
                         <span>
                             {connectionStatus === 'connected' ? 'Server Terhubung' : 
-                             connectionStatus === 'local' ? 'Mode Offline (Lokal)' : 
-                             'Koneksi Terputus'}
+                             connectionStatus === 'local' ? 'Offline (Local)' : 
+                             'Terputus'}
                         </span>
                     </div>
                 )}
