@@ -7,7 +7,7 @@ interface TeacherDataViewProps {
   teachers: Teacher[];
   setTeachers: (teacher: Teacher) => void; 
   availableClasses: string[]; 
-  availableSubjects?: string[]; // Added prop
+  availableSubjects?: string[]; 
 }
 
 const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers, availableClasses, availableSubjects = [] }) => {
@@ -18,24 +18,33 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
     name: '',
     nip: '',
     subject: '',
+    customSubject: '', // For manual entry
     classes: [] as string[],
     waliKelas: ''
   };
   const [formData, setFormData] = useState(initialFormState);
+  const [isCustomSubject, setIsCustomSubject] = useState(false);
 
   const classColumns = ['VII A', 'VII B', 'VII C', 'VIII A', 'VIII B', 'VIII C', 'IX A', 'IX B', 'IX C'];
-  // Combine props classes with default columns to ensure all options are available
   const allClassOptions = Array.from(new Set([...classColumns, ...availableClasses])).sort();
+  
+  // Combine all subjects for dropdown
+  const allSubjectOptions = Array.from(new Set([...availableSubjects, ...teachers.map(t => t.subject), 'Pendidikan Agama Islam'])).sort();
 
   const handleEdit = (teacher: Teacher) => {
-    setEditingTeacher(teacher); 
+    setEditingTeacher(teacher);
+    // Check if current subject is in list
+    const isCustom = !allSubjectOptions.includes(teacher.subject) && teacher.subject !== '';
+    
     setFormData({
       name: teacher.name,
       nip: teacher.nip,
-      subject: teacher.subject,
+      subject: isCustom ? 'lainnya' : teacher.subject,
+      customSubject: isCustom ? teacher.subject : '',
       classes: teacher.classes,
       waliKelas: teacher.waliKelas || ''
     });
+    setIsCustomSubject(isCustom);
     setIsModalOpen(true);
   };
 
@@ -46,6 +55,12 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     
+    const finalSubject = isCustomSubject ? formData.customSubject : formData.subject;
+    if (!finalSubject) {
+        alert("Mohon pilih atau isi mata pelajaran.");
+        return;
+    }
+
     let teacherToSave: Teacher;
 
     if (editingTeacher) {
@@ -53,7 +68,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
         ...editingTeacher, 
         name: formData.name,
         nip: formData.nip,
-        subject: formData.subject,
+        subject: finalSubject,
         classes: formData.classes,
         waliKelas: formData.waliKelas || undefined
       };
@@ -63,7 +78,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
         no: teachers.length + 1,
         name: formData.name,
         nip: formData.nip,
-        subject: formData.subject,
+        subject: finalSubject,
         classes: formData.classes,
         waliKelas: formData.waliKelas || undefined
       };
@@ -73,6 +88,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
     setIsModalOpen(false);
     setEditingTeacher(null);
     setFormData(initialFormState);
+    setIsCustomSubject(false);
   };
 
   const toggleClassSelection = (cls: string) => {
@@ -82,6 +98,17 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
         ? prev.classes.filter(c => c !== cls)
         : [...prev.classes, cls]
     }));
+  };
+
+  const handleSubjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const val = e.target.value;
+      if (val === 'lainnya') {
+          setIsCustomSubject(true);
+          setFormData(prev => ({ ...prev, subject: 'lainnya', customSubject: '' }));
+      } else {
+          setIsCustomSubject(false);
+          setFormData(prev => ({ ...prev, subject: val, customSubject: '' }));
+      }
   };
 
   return (
@@ -98,6 +125,7 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
           onClick={() => {
             setEditingTeacher(null);
             setFormData(initialFormState);
+            setIsCustomSubject(false);
             setIsModalOpen(true);
           }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
@@ -218,24 +246,38 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
                     placeholder="-"
                   />
                 </div>
+                
+                {/* IMPROVED SUBJECT DROPDOWN */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                       <BookOpen size={14}/> Mata Pelajaran
                   </label>
                   <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      list="subjectListSettings"
-                      value={formData.subject}
-                      onChange={e => setFormData({...formData, subject: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      placeholder="Pilih atau Ketik Mapel"
-                    />
-                    <datalist id="subjectListSettings">
-                        {(availableSubjects.length > 0 ? availableSubjects : []).map(s => <option key={s} value={s} />)}
-                    </datalist>
+                    <select
+                        required={!isCustomSubject}
+                        value={formData.subject}
+                        onChange={handleSubjectChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none appearance-none bg-white"
+                    >
+                        <option value="">-- Pilih Mapel --</option>
+                        {allSubjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                        <option value="lainnya" className="font-bold text-blue-600">+ Ketik Manual (Lainnya)</option>
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                        <ChevronDown size={16} />
+                    </div>
                   </div>
+                  {isCustomSubject && (
+                      <input
+                        type="text"
+                        required
+                        value={formData.customSubject}
+                        onChange={e => setFormData({...formData, customSubject: e.target.value})}
+                        className="w-full mt-2 px-3 py-2 border border-blue-300 bg-blue-50 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-blue-800 placeholder-blue-300 animate-fade-in"
+                        placeholder="Masukkan Nama Mata Pelajaran..."
+                        autoFocus
+                      />
+                  )}
                 </div>
               </div>
 
