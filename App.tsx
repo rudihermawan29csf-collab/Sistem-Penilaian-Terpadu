@@ -34,7 +34,7 @@ import {
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { calculateFinalGrade } from './utils';
+import { calculateFinalGrade, createEmptySemesterData } from './utils';
 
 // --- Sidebar Components ---
 const SectionLabel = ({ label, collapsed }: { label: string, collapsed?: boolean }) => (
@@ -113,6 +113,7 @@ const defaultSettings: AppSettings = {
 };
 
 const LOCAL_STORAGE_KEY = 'igrade_data_backup_v2';
+const SESSION_STORAGE_KEY = 'igrade_user_session_v2'; // Key for persisting login state
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -180,6 +181,26 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
   }, [students, teachers, assessmentHistory, settings, dailyAttendance, subjectChapterConfigs, subjectFieldConfigs, saveToLocalStorage, loading]);
 
+  // --- SESSION PERSISTENCE ---
+  // Save session whenever relevant state changes
+  useEffect(() => {
+      if (userRole) {
+          const sessionData = {
+              role: userRole,
+              data: userData,
+              class: selectedClass,
+              subject: selectedSubject,
+              tab: activeTab
+          };
+          try {
+              localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
+          } catch(e) { console.warn("Failed to save session", e); }
+      } else if (!loading) {
+          // Only clear if explicitly logged out (not during initial load)
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+  }, [userRole, userData, selectedClass, selectedSubject, activeTab, loading]);
+
 
   // --- INITIALIZATION & SYNC LOGIC ---
   const loadData = useCallback(async () => {
@@ -210,8 +231,6 @@ const App: React.FC = () => {
             console.log("Using Local Data (Newer than Server)", localTime, serverTime);
             finalData = localData;
             status = 'local'; 
-            // Suppressed auto-message as per user request to not disturb login
-            // setSyncMessage("Data lokal lebih baru. Mohon upload data ke server.");
         } else {
             console.log("Using Server Data (Newer or Equal)");
             finalData = apiData;
@@ -229,7 +248,21 @@ const App: React.FC = () => {
 
     if (finalData) {
         setConnectionStatus(status);
-        if (finalData.students) setStudents(finalData.students);
+        
+        // --- DATA SANITIZATION (Fix for "Data Offline/Lokal" corruption) ---
+        if (finalData.students) {
+            // Ensure every student has the correct structure even if coming from old local data
+            const sanitizedStudents = (finalData.students as Student[]).map(s => ({
+                ...s,
+                gradesBySubject: s.gradesBySubject || {},
+                grades: s.grades || {
+                    ganjil: createEmptySemesterData(),
+                    genap: createEmptySemesterData()
+                }
+            }));
+            setStudents(sanitizedStudents);
+        }
+
         if (finalData.teachers) setTeachers(finalData.teachers);
         if (finalData.history) setAssessmentHistory(finalData.history);
         if (finalData.settings) {
@@ -247,7 +280,6 @@ const App: React.FC = () => {
                     genap: loadedSettings.midSemesterDate
                 };
             }
-            // Ensure arrays
             if (!loadedSettings.extracurriculars) loadedSettings.extracurriculars = [];
             if (!loadedSettings.subjects) loadedSettings.subjects = [];
 
@@ -261,6 +293,22 @@ const App: React.FC = () => {
         setOfflineMode(true);
         setShowOfflineBanner(true);
     }
+
+    // --- RESTORE SESSION (Keep user logged in offline) ---
+    try {
+        const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (savedSession) {
+            const sess = JSON.parse(savedSession);
+            if (sess.role && sess.data) {
+                setUserRole(sess.role);
+                setUserData(sess.data);
+                if (sess.class) setSelectedClass(sess.class);
+                if (sess.subject) setSelectedSubject(sess.subject);
+                if (sess.tab) setActiveTab(sess.tab);
+            }
+        }
+    } catch(e) { console.warn("Failed to restore session"); }
+
     setLoading(false);
   }, []);
 
@@ -349,6 +397,7 @@ const App: React.FC = () => {
     setUserData(null);
     setActiveTab('dashboard');
     setIsSidebarOpen(false);
+    localStorage.removeItem(SESSION_STORAGE_KEY); // Clear session
   };
 
   // --- DATA HANDLERS ---
@@ -1249,11 +1298,11 @@ const App: React.FC = () => {
                      <MonitoringView 
                         type="tanggungan" 
                         students={students} 
-                        history={assessmentHistory} 
+                        history={userRole === 'teacher' ? assessmentHistory.filter(h => h.targetSubject === userData.subject || (!h.targetSubject && userData.subject === 'Pendidikan Agama Islam')) : assessmentHistory} 
                         currentSemester={settings.activeSemester} 
                         academicYear={settings.academicYear} 
-                        subjectName="Semua Mapel" 
-                        teacherName="Monitoring Admin" 
+                        subjectName={userRole === 'teacher' ? userData.subject : "Semua Mapel"} 
+                        teacherName={userRole === 'teacher' ? userData.name : "Monitoring Admin"} 
                      />
                  )}
 
@@ -1261,11 +1310,11 @@ const App: React.FC = () => {
                      <MonitoringView 
                         type="remidi" 
                         students={students} 
-                        history={assessmentHistory} 
+                        history={userRole === 'teacher' ? assessmentHistory.filter(h => h.targetSubject === userData.subject || (!h.targetSubject && userData.subject === 'Pendidikan Agama Islam')) : assessmentHistory} 
                         currentSemester={settings.activeSemester} 
                         academicYear={settings.academicYear} 
-                        subjectName="Semua Mapel" 
-                        teacherName="Monitoring Admin" 
+                        subjectName={userRole === 'teacher' ? userData.subject : "Semua Mapel"} 
+                        teacherName={userRole === 'teacher' ? userData.name : "Monitoring Admin"} 
                      />
                  )}
 

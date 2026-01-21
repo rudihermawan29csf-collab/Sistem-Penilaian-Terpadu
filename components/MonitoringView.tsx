@@ -4,6 +4,7 @@ import { Student, GradingSession, SemesterKey } from '../types';
 import { ChevronRight, Calendar, AlertCircle, RefreshCw, BookOpen, Download, User, Layers, Hash, Clock } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { createEmptySemesterData } from '../utils';
 
 interface MonitoringViewProps {
   type: 'tanggungan' | 'remidi';
@@ -48,7 +49,11 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
 
     classStudents.forEach(student => {
       let score: number | null = null;
-      const grades = student.grades[currentSemester];
+      
+      const sessionSubject = session.targetSubject || 'Pendidikan Agama Islam';
+      const grades = sessionSubject === 'Pendidikan Agama Islam' 
+          ? student.grades[currentSemester] 
+          : (student.gradesBySubject?.[sessionSubject]?.[currentSemester] || createEmptySemesterData());
 
       if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
         score = grades[session.chapterKey][session.formativeKey];

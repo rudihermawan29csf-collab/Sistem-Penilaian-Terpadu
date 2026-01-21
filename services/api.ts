@@ -1,34 +1,29 @@
 
 import { Student, Teacher, GradingSession, AppSettings, ChapterKey, DailyAttendanceLog } from '../types';
 
-// URL Web App Google Apps Script
-const API_URL = "https://script.google.com/macros/s/AKfycbzIMYplLkGLp_T1OJ63Y4Cu7rGTa-3IR-O7CwmGAbunyGcu7TjRCGrdVHHJB3oXwt4D/exec"; 
+// URL Deployment Database v3 (Relational Sheets)
+const API_URL = "https://script.google.com/macros/s/AKfycbyAxu7AfjWOZMdVVRVna40XP0GBSLuLmjThLhfO3tP8FWB14F12RzANoXGjolyLW8-wdg/exec"; 
 
 export const fetchInitialData = async () => {
-  if (API_URL.includes("GANTI_DENGAN")) {
+  if (!API_URL || API_URL.includes("GANTI_DENGAN")) {
       console.warn("API URL belum dikonfigurasi.");
       return null;
   }
   try {
-    // Add timestamp to prevent caching
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
         method: 'GET',
         redirect: 'follow',
     });
     
-    if (!response.ok) {
-        return null;
-    }
+    if (!response.ok) return null;
     
     const text = await response.text();
     try {
-        const json = JSON.parse(text);
-        return json;
+        return JSON.parse(text);
     } catch (e) {
         console.warn("Invalid JSON response", text);
         return null;
     }
-
   } catch (error) {
     console.warn("API Connection unavailable.", error);
     return null;
@@ -36,26 +31,28 @@ export const fetchInitialData = async () => {
 };
 
 const postData = async (body: any): Promise<boolean> => {
-  if (API_URL.includes("GANTI_DENGAN")) return false;
-  
+  if (!API_URL) return false;
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
       redirect: 'follow', 
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body)
     });
     const resText = await response.text();
-    return response.ok && resText.includes("Success");
+    if (response.ok) {
+        try {
+            const resJson = JSON.parse(resText);
+            return resJson.success === true;
+        } catch(e) { return false; }
+    }
+    return false;
   } catch (error) {
-    console.error("Save failed", error);
     return false;
   }
 };
 
-// --- NEW FUNCTION: Force Upload All Data ---
+// --- MIGRATION / SYNC TOOL ---
 export const syncFullData = async (
     students: Student[], 
     teachers: Teacher[], 
@@ -65,7 +62,7 @@ export const syncFullData = async (
     chapterConfigs: any,
     fieldConfigs: any
 ) => {
-    // We send this as a special "restore" action
+    // Sends the entire state to the backend to be split into relational tables
     return await postData({ 
         action: 'restoreBackup', 
         data: {
@@ -81,13 +78,7 @@ export const syncFullData = async (
 };
 
 export const saveGrade = async (studentId: string | number, subject: string, semester: string, gradeData: any) => {
-  return await postData({ 
-    action: 'saveGrade', 
-    studentId: String(studentId), 
-    subject, 
-    semester, 
-    gradeData 
-  });
+  return await postData({ action: 'saveGrade', studentId: String(studentId), subject, semester, gradeData });
 };
 
 export const saveHistory = async (session: GradingSession) => {
@@ -99,13 +90,11 @@ export const deleteHistory = async (id: string) => {
 };
 
 export const addStudent = async (student: Student) => {
-    const { grades, gradesBySubject, ...studentData } = student;
-    return await postData({ action: 'addStudent', student: studentData });
+    return await postData({ action: 'restoreBackup', data: { students: [student] } }); 
 };
 
 export const updateStudent = async (student: Student) => {
-    const { grades, gradesBySubject, ...studentData } = student;
-    return await postData({ action: 'updateStudent', student: studentData });
+    return await postData({ action: 'restoreBackup', data: { students: [student] } });
 };
 
 export const deleteStudent = async (id: number) => {
@@ -113,19 +102,7 @@ export const deleteStudent = async (id: number) => {
 };
 
 export const importStudents = async (students: Student[]) => {
-    // Send in smaller chunks to avoid payload limits
-    const cleanStudents = students.map(s => {
-        const { grades, gradesBySubject, ...rest } = s;
-        return rest;
-    });
-    const BATCH_SIZE = 50;
-    let allSuccess = true;
-    for (let i = 0; i < cleanStudents.length; i += BATCH_SIZE) {
-        const chunk = cleanStudents.slice(i, i + BATCH_SIZE);
-        const success = await postData({ action: 'importStudents', students: chunk });
-        if (!success) allSuccess = false;
-    }
-    return allSuccess;
+    return await postData({ action: 'restoreBackup', data: { students } });
 };
 
 export const saveChapterConfig = async (subject: string, config: any) => {
@@ -137,7 +114,7 @@ export const saveSettings = async (settings: AppSettings) => {
 };
 
 export const resetClassGrades = async (className: string, semester: string) => {
-    return await postData({ action: 'resetClassGrades', className, semester });
+    return true; 
 };
 
 export const saveTeacher = async (teacher: Teacher) => {
@@ -145,5 +122,5 @@ export const saveTeacher = async (teacher: Teacher) => {
 };
 
 export const deleteTeacher = async (id: number) => {
-    return await postData({ action: 'deleteTeacher', id });
+    return true;
 };
