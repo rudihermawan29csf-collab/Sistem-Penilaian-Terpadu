@@ -601,7 +601,7 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
 
     return (
         <div className="h-full flex flex-col animate-scale-in">
-             <div className="mb-4 flex flex-wrap items-end gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+             <div className="mb-4 flex flex-wrap items-end gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
                 <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Dari Tanggal</label>
                     <input 
@@ -630,57 +630,60 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
                 </button>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex-1 overflow-auto custom-scrollbar relative">
-                <table className="w-full text-left border-collapse min-w-max">
-                    <thead className="bg-gray-50 text-xs font-bold uppercase text-gray-500 sticky top-0 z-20 shadow-sm">
-                        <tr>
-                            <th className="px-4 py-3 border-b border-r border-gray-200 w-12 text-center sticky left-0 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
-                            <th className="px-4 py-3 border-b border-r border-gray-200 w-64 sticky left-12 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Siswa</th>
-                            {dateRange.map(date => (
-                                <th key={date} className="px-2 py-3 border-b border-r border-gray-200 text-center min-w-[3rem]">
-                                    <div className="flex flex-col">
-                                        <span>{new Date(date).getDate()}</span>
-                                        <span className="text-[9px] font-normal">{new Date(date).toLocaleString('id-ID', {month: 'short'})}</span>
-                                    </div>
-                                </th>
-                            ))}
-                            <th className="px-2 py-3 border-b border-r border-gray-200 bg-green-50 text-green-700 text-center w-10 sticky right-[9rem] z-20">H</th>
-                            <th className="px-2 py-3 border-b border-r border-gray-200 bg-blue-50 text-blue-700 text-center w-10 sticky right-[6rem] z-20">S</th>
-                            <th className="px-2 py-3 border-b border-r border-gray-200 bg-yellow-50 text-yellow-700 text-center w-10 sticky right-[3rem] z-20">I</th>
-                            <th className="px-2 py-3 border-b border-gray-200 bg-red-50 text-red-700 text-center w-10 sticky right-0 z-20">A</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 text-sm">
-                        {filteredStudents.map((student, idx) => {
-                            let h = 0, s = 0, i = 0, a = 0;
-                            return (
-                                <tr key={student.id} className="hover:bg-blue-50/20 transition-colors">
-                                    <td className="px-4 py-2 border-r border-gray-100 text-center text-gray-500 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{idx + 1}</td>
-                                    <td className="px-4 py-2 border-r border-gray-100 font-medium text-gray-800 sticky left-12 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
-                                    {dateRange.map(date => {
-                                        const status = attendanceMap[date]?.[student.id];
-                                        let cellClass = "text-gray-300";
-                                        if (status === 'H') { h++; cellClass = "text-green-600 font-bold bg-green-50"; }
-                                        else if (status === 'S') { s++; cellClass = "text-blue-600 font-bold bg-blue-50"; }
-                                        else if (status === 'I') { i++; cellClass = "text-yellow-600 font-bold bg-yellow-50"; }
-                                        else if (status === 'A') { a++; cellClass = "text-red-600 font-bold bg-red-50"; }
-                                        else if (!status) { cellClass = "bg-gray-50/50"; }
+            {/* Matrix Table with Horizontal & Vertical Scroll - Updated Container Logic */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex-1 relative">
+                <div className="absolute inset-0 overflow-auto custom-scrollbar">
+                    <table className="w-full text-left border-collapse min-w-max">
+                        <thead className="bg-gray-50 text-xs font-bold uppercase text-gray-500 sticky top-0 z-20 shadow-sm">
+                            <tr>
+                                <th className="px-4 py-3 border-b border-r border-gray-200 w-12 text-center sticky left-0 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
+                                <th className="px-4 py-3 border-b border-r border-gray-200 w-64 sticky left-12 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Siswa</th>
+                                {dateRange.map(date => (
+                                    <th key={date} className="px-2 py-3 border-b border-r border-gray-200 text-center min-w-[3rem]">
+                                        <div className="flex flex-col">
+                                            <span>{new Date(date).getDate()}</span>
+                                            <span className="text-[9px] font-normal">{new Date(date).toLocaleString('id-ID', {month: 'short'})}</span>
+                                        </div>
+                                    </th>
+                                ))}
+                                <th className="px-2 py-3 border-b border-r border-gray-200 bg-green-50 text-green-700 text-center w-10 sticky right-[9rem] z-20">H</th>
+                                <th className="px-2 py-3 border-b border-r border-gray-200 bg-blue-50 text-blue-700 text-center w-10 sticky right-[6rem] z-20">S</th>
+                                <th className="px-2 py-3 border-b border-r border-gray-200 bg-yellow-50 text-yellow-700 text-center w-10 sticky right-[3rem] z-20">I</th>
+                                <th className="px-2 py-3 border-b border-gray-200 bg-red-50 text-red-700 text-center w-10 sticky right-0 z-20">A</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-sm">
+                            {filteredStudents.map((student, idx) => {
+                                let h = 0, s = 0, i = 0, a = 0;
+                                return (
+                                    <tr key={student.id} className="hover:bg-blue-50/20 transition-colors">
+                                        <td className="px-4 py-2 border-r border-gray-100 text-center text-gray-500 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{idx + 1}</td>
+                                        <td className="px-4 py-2 border-r border-gray-100 font-medium text-gray-800 sticky left-12 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
+                                        {dateRange.map(date => {
+                                            const status = attendanceMap[date]?.[student.id];
+                                            let cellClass = "text-gray-300";
+                                            if (status === 'H') { h++; cellClass = "text-green-600 font-bold bg-green-50"; }
+                                            else if (status === 'S') { s++; cellClass = "text-blue-600 font-bold bg-blue-50"; }
+                                            else if (status === 'I') { i++; cellClass = "text-yellow-600 font-bold bg-yellow-50"; }
+                                            else if (status === 'A') { a++; cellClass = "text-red-600 font-bold bg-red-50"; }
+                                            else if (!status) { cellClass = "bg-gray-50/50"; }
 
-                                        return (
-                                            <td key={date} className={`px-2 py-2 border-r border-gray-100 text-center ${cellClass}`}>
-                                                {status || '-'}
-                                            </td>
-                                        );
-                                    })}
-                                    <td className="px-2 py-2 border-r border-gray-100 text-center font-bold bg-green-50/30 sticky right-[9rem] bg-white">{h}</td>
-                                    <td className="px-2 py-2 border-r border-gray-100 text-center font-bold bg-blue-50/30 sticky right-[6rem] bg-white">{s}</td>
-                                    <td className="px-2 py-2 border-r border-gray-100 text-center font-bold bg-yellow-50/30 sticky right-[3rem] bg-white">{i}</td>
-                                    <td className="px-2 py-2 text-center font-bold bg-red-50/30 sticky right-0 bg-white">{a}</td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                                            return (
+                                                <td key={date} className={`px-2 py-2 border-r border-gray-100 text-center ${cellClass}`}>
+                                                    {status || '-'}
+                                                </td>
+                                            );
+                                        })}
+                                        <td className="px-2 py-2 border-r border-gray-100 text-center font-bold bg-green-50/30 sticky right-[9rem] bg-white">{h}</td>
+                                        <td className="px-2 py-2 border-r border-gray-100 text-center font-bold bg-blue-50/30 sticky right-[6rem] bg-white">{s}</td>
+                                        <td className="px-2 py-2 border-r border-gray-100 text-center font-bold bg-yellow-50/30 sticky right-[3rem] bg-white">{i}</td>
+                                        <td className="px-2 py-2 text-center font-bold bg-red-50/30 sticky right-0 bg-white">{a}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <div className="mt-2 text-xs text-gray-400">
                 Menampilkan data dari {filterStartDate} s/d {filterEndDate}
@@ -691,7 +694,7 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
 
   const renderRekapBulananTab = () => (
       <div className="h-full flex flex-col animate-scale-in">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
               <div className="flex items-center gap-4">
                   <div>
                       <label className="block text-xs font-bold text-gray-500 mb-1">Pilih Bulan</label>
@@ -716,44 +719,46 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
               </button>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex-1 overflow-auto custom-scrollbar relative">
-              <table className="w-full text-left border-collapse">
-                  <thead className="bg-gray-50 text-xs font-bold uppercase text-gray-500 sticky top-0 z-20 shadow-sm">
-                      <tr>
-                          <th className="px-4 py-3 border-b border-r border-gray-200 w-12 text-center sticky left-0 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
-                          <th className="px-4 py-3 border-b border-r border-gray-200 w-64 sticky left-12 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Siswa</th>
-                          <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-green-50 text-green-700">Hadir</th>
-                          <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-blue-50 text-blue-700">Sakit</th>
-                          <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-yellow-50 text-yellow-700">Izin</th>
-                          <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-red-50 text-red-700">Alpha</th>
-                          <th className="px-4 py-3 border-b border-gray-200 w-24 text-center">Total Absen</th>
-                      </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-sm">
-                      {filteredStudents.map((student, idx) => {
-                          const stats = monthlySummary[student.id];
-                          const totalAbsent = stats.s + stats.i + stats.a;
-                          return (
-                              <tr key={student.id} className="hover:bg-gray-50 transition-colors">
-                                  <td className="px-4 py-3 text-center text-gray-500 sticky left-0 bg-white z-10 border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{idx + 1}</td>
-                                  <td className="px-4 py-3 font-medium text-gray-800 sticky left-12 bg-white z-10 border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
-                                  <td className="px-4 py-3 text-center font-bold text-green-600 bg-green-50/20">{stats.h}</td>
-                                  <td className="px-4 py-3 text-center font-bold text-blue-600 bg-blue-50/20">{stats.s}</td>
-                                  <td className="px-4 py-3 text-center font-bold text-yellow-600 bg-yellow-50/20">{stats.i}</td>
-                                  <td className="px-4 py-3 text-center font-bold text-red-600 bg-red-50/20">{stats.a}</td>
-                                  <td className="px-4 py-3 text-center font-bold text-gray-700 bg-gray-50">{totalAbsent}</td>
-                              </tr>
-                          );
-                      })}
-                  </tbody>
-              </table>
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex-1 relative">
+              <div className="absolute inset-0 overflow-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse min-w-max">
+                      <thead className="bg-gray-50 text-xs font-bold uppercase text-gray-500 sticky top-0 z-20 shadow-sm">
+                          <tr>
+                              <th className="px-4 py-3 border-b border-r border-gray-200 w-12 text-center sticky left-0 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
+                              <th className="px-4 py-3 border-b border-r border-gray-200 w-64 sticky left-12 bg-gray-50 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Siswa</th>
+                              <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-green-50 text-green-700">Hadir</th>
+                              <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-blue-50 text-blue-700">Sakit</th>
+                              <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-yellow-50 text-yellow-700">Izin</th>
+                              <th className="px-4 py-3 border-b border-gray-200 w-24 text-center bg-red-50 text-red-700">Alpha</th>
+                              <th className="px-4 py-3 border-b border-gray-200 w-24 text-center">Total Absen</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 text-sm">
+                          {filteredStudents.map((student, idx) => {
+                              const stats = monthlySummary[student.id];
+                              const totalAbsent = stats.s + stats.i + stats.a;
+                              return (
+                                  <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                                      <td className="px-4 py-3 text-center text-gray-500 sticky left-0 bg-white z-10 border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{idx + 1}</td>
+                                      <td className="px-4 py-3 font-medium text-gray-800 sticky left-12 bg-white z-10 border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
+                                      <td className="px-4 py-3 text-center font-bold text-green-600 bg-green-50/20">{stats.h}</td>
+                                      <td className="px-4 py-3 text-center font-bold text-blue-600 bg-blue-50/20">{stats.s}</td>
+                                      <td className="px-4 py-3 text-center font-bold text-yellow-600 bg-yellow-50/20">{stats.i}</td>
+                                      <td className="px-4 py-3 text-center font-bold text-red-600 bg-red-50/20">{stats.a}</td>
+                                      <td className="px-4 py-3 text-center font-bold text-gray-700 bg-gray-50">{totalAbsent}</td>
+                                  </tr>
+                              );
+                          })}
+                      </tbody>
+                  </table>
+              </div>
           </div>
       </div>
   );
 
   return (
-    <div className="flex-1 bg-white h-full flex flex-col">
-      <div className="px-6 py-5 border-b border-gray-200 bg-white sticky top-0 z-10 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+    <div className="flex-1 bg-white h-full flex flex-col overflow-hidden">
+      <div className="px-6 py-5 border-b border-gray-200 bg-white sticky top-0 z-10 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0">
         <div>
             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <Users className="text-teal-600" />
@@ -819,7 +824,7 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto custom-scrollbar p-6">
+      <div className="flex-1 flex flex-col min-h-0">
         {!selectedClass ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
                 <Users size={64} className="mb-4 opacity-20" />
@@ -827,11 +832,22 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
             </div>
         ) : (
             <>
-                {activeTab === 'attendance' && renderAttendanceTab()}
-                {activeTab === 'input_izin' && renderInputIzinTab()}
-                {activeTab === 'monitoring' && renderMonitoringTab()}
-                {activeTab === 'history' && renderHistoryTab()}
-                {activeTab === 'rekap_bulanan' && renderRekapBulananTab()}
+                {/* Scrollable Container for Forms */}
+                {(activeTab === 'attendance' || activeTab === 'input_izin' || activeTab === 'monitoring') && (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                        {activeTab === 'attendance' && renderAttendanceTab()}
+                        {activeTab === 'input_izin' && renderInputIzinTab()}
+                        {activeTab === 'monitoring' && renderMonitoringTab()}
+                    </div>
+                )}
+
+                {/* Fixed Container for Tables (Scrolls internally) */}
+                {(activeTab === 'history' || activeTab === 'rekap_bulanan') && (
+                    <div className="flex-1 flex flex-col h-full min-w-0 p-6 overflow-hidden">
+                        {activeTab === 'history' && renderHistoryTab()}
+                        {activeTab === 'rekap_bulanan' && renderRekapBulananTab()}
+                    </div>
+                )}
             </>
         )}
       </div>

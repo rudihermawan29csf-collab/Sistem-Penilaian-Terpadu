@@ -9,9 +9,10 @@ interface InputGradeModalProps {
   onSaveSession: (session: GradingSession) => void;
   currentSemester: SemesterKey;
   targetClass: string;
-  subjectName: string; // Added subjectName
+  subjectName: string; 
   initialData?: GradingSession | null;
   history?: GradingSession[];
+  keepOpenOnSave?: boolean; // New Prop
 }
 
 const InputGradeModal: React.FC<InputGradeModalProps> = ({ 
@@ -22,7 +23,8 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
   targetClass,
   subjectName,
   initialData,
-  history = [] 
+  history = [],
+  keepOpenOnSave = false
 }) => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [type, setType] = useState<GradeType>('bab');
@@ -105,7 +107,11 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
       formativeKey: type === 'bab' ? field : undefined,
       description
     });
-    onClose();
+    
+    // Only close if not explicitly told to keep open
+    if (!keepOpenOnSave) {
+        onClose();
+    }
   };
 
   const getChapterLabel = (key: ChapterKey) => {
@@ -120,7 +126,7 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
         onClick={onClose}
       ></div>
 
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transform transition-all scale-100 ring-1 ring-gray-900/5">
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden transform transition-all scale-100 ring-1 ring-gray-900/5 animate-scale-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-[#f9f9fb]">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">
@@ -239,11 +245,11 @@ const InputGradeModal: React.FC<InputGradeModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
-              Batal
+              Tutup / Batal
             </button>
             <button
               type="submit"
-              disabled={type === 'bab' && availableFields.length === 0}
+              disabled={type === 'bab' && availableFields.length === 0 && !initialData}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {initialData ? 'Simpan Perubahan' : 'Buka Input Nilai'}
