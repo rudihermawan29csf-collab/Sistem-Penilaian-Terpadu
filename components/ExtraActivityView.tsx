@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Student, SemesterKey, AppSettings, Teacher, DailyAttendanceLog, AttendanceRecord, StudentExtracurricular } from '../types';
-import { Award, Plus, Trash2, Save, UserPlus, X, Edit2, Check, FileText, Calendar, CheckCircle, FileSpreadsheet, PieChart, List, CalendarRange, Lock, Info, Image as ImageIcon, UploadCloud, Search, History, Camera } from 'lucide-react';
+import { Award, Plus, Trash2, Save, UserPlus, X, Edit2, Check, FileText, Calendar, CheckCircle, FileSpreadsheet, PieChart, List, CalendarRange, Lock, Info, Image as ImageIcon, CloudUpload, Search, History, Camera } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface ExtraActivityViewProps {
@@ -653,7 +653,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                                             disabled={documentation.length >= 3}
                                             className="flex items-center gap-1 text-xs bg-white text-blue-600 px-3 py-1.5 rounded-lg border border-blue-200 font-bold hover:bg-blue-50 disabled:opacity-50"
                                         >
-                                            <UploadCloud size={14}/> Upload Foto
+                                            <CloudUpload size={14}/> Upload Foto
                                         </button>
                                     </div>
                                     <div className="flex gap-4 overflow-x-auto pb-2">
@@ -789,7 +789,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                                                                     className="absolute bottom-2 right-2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity"
                                                                     title="Download Foto"
                                                                 >
-                                                                    <UploadCloud size={14} className="rotate-180"/>
+                                                                    <CloudUpload size={14} className="rotate-180"/>
                                                                 </a>
                                                             </div>
                                                         ))}
