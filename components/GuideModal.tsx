@@ -19,7 +19,7 @@ const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose, role }) => {
             <section>
               <h4 className="text-blue-700 font-bold flex items-center gap-2 mb-2"><Settings size={18}/> 1. Konfigurasi Awal (PENTING)</h4>
               <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-                <li>Pergi ke menu <strong>Sistem > Pengaturan Lengkap</strong>.</li>
+                <li>Pergi ke menu <strong>Sistem &gt; Pengaturan Lengkap</strong>.</li>
                 <li>Atur <strong>Tahun Ajaran</strong> dan <strong>Semester Aktif</strong>.</li>
                 <li>Konfigurasi <strong>Kop Sekolah</strong>, Nama Kepala Sekolah, dan Tanggal Rapor.</li>
                 <li>Tentukan <strong>Tema P5 (Kokurikuler)</strong> untuk semester aktif.</li>
