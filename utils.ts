@@ -27,20 +27,22 @@ export const getActiveFields = (students: Student[], semester: SemesterKey, chap
 };
 
 export const calculateChapterAverage = (grades: ChapterGrades, activeFields: FormativeKey[]): number | null => {
-  // If no fields are active in the class, return null
+  // If no fields are active in the class configuration, return null
   if (activeFields.length === 0) return null;
 
   let total = 0;
-  // The divisor is the number of active fields in the class
-  const count = activeFields.length;
+  let count = 0;
 
   activeFields.forEach((field) => {
     const value = grades[field];
-    // If value is present, add it. If null, it adds 0 (effectively).
+    // Only count non-null values
     if (value !== null) {
       total += value;
+      count++;
     }
   });
+
+  if (count === 0) return null;
 
   return parseFloat((total / count).toFixed(1));
 };
@@ -71,12 +73,16 @@ export const calculateFinalGrade = (
   });
 
   // 2. Process KTS
-  total += (semesterData.kts || 0);
-  count++;
+  if (semesterData.kts !== null) {
+      total += semesterData.kts;
+      count++;
+  }
 
   // 3. Process SAS
-  total += (semesterData.sas || 0);
-  count++;
+  if (semesterData.sas !== null) {
+      total += semesterData.sas;
+      count++;
+  }
 
   // 4. Process Nilai UP (Optional - usually depends on school policy if UP is part of NA or separate)
   // For this implementation, we keep UP separate as per typical 'Nilai Praktik' vs 'Nilai Pengetahuan' split,
