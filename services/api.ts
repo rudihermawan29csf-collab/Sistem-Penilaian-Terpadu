@@ -2,32 +2,37 @@
 import { Student, Teacher, GradingSession, AppSettings, ChapterKey } from '../types';
 
 // Corrected URL
-const API_URL = "https://script.google.com/macros/s/AKfycbzuO6E-ony28PA3Oe1rBBh5JLR6V_h6FKeKe_LuF6jRfZOcc_WVOyuNowfU3mkFFPWG/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbzTilcGfR8xawtP1dkXE_bFgYhlqKKxjzwox6FsxnsA4wb6Id4fUbVlGwPBR-dzEe_k/exec"; 
 
 export const fetchInitialData = async () => {
   try {
-    // Add timestamp cache buster to ensure we always get fresh data from server
-    // Added 'redirect: follow' explicitly although it's default in many envs
+    // Single attempt with timestamp to prevent caching
+    // credentials: 'omit' is crucial for public scripts to avoid Google Auth conflicts in browser
     const response = await fetch(`${API_URL}?action=getInitialData&t=${new Date().getTime()}`, {
-        redirect: 'follow'
+        method: 'GET',
+        redirect: 'follow',
+        credentials: 'omit',
     });
     
-    if (!response.ok) throw new Error(`Network response was not ok: ${response.status}`);
+    if (!response.ok) {
+        console.warn(`API responded with status ${response.status}`);
+        return null;
+    }
     
-    // Get text first to log it, then parse
     const text = await response.text();
-    console.log("Raw Server Response:", text); // Debug log
     
     try {
         const json = JSON.parse(text);
         return json;
     } catch (e) {
-        console.error("Failed to parse JSON response:", e);
+        console.warn("Failed to parse JSON response from server.");
         return null;
     }
 
   } catch (error) {
-    console.error("Failed to fetch data", error);
+    // Gracefully handle network/CORS errors without retrying (fast fail)
+    // This allows the app to immediately fallback to local data
+    console.warn("API Connection unavailable (Offline Mode activated).");
     return null;
   }
 };
@@ -44,7 +49,8 @@ const postData = async (body: any) => {
       body: JSON.stringify(body)
     });
   } catch (error) {
-    console.error("Failed to save data", error);
+    // Silent fail for background saves in offline mode
+    console.warn("Background save failed (Offline)");
   }
 };
 

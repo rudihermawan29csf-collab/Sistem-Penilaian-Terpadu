@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
   SemesterKey, SemesterData, DailyAttendanceLog 
@@ -29,7 +29,7 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -113,6 +113,8 @@ const defaultSettings: AppSettings = {
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [showOfflineBanner, setShowOfflineBanner] = useState(true); 
   const [userRole, setUserRole] = useState<'admin' | 'teacher' | 'student' | 'leader' | null>(null);
   const [userData, setUserData] = useState<any>(null);
 
@@ -128,8 +130,8 @@ const App: React.FC = () => {
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile toggle
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Desktop minimize
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   
@@ -145,38 +147,52 @@ const App: React.FC = () => {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
   // --- INITIALIZATION ---
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      const data = await api.fetchInitialData();
-      if (data) {
-        if (data.students) setStudents(data.students);
-        if (data.teachers) setTeachers(data.teachers);
-        if (data.history) setAssessmentHistory(data.history);
-        if (data.settings) {
-            let loadedSettings = data.settings;
-            if (Array.isArray(loadedSettings.kokurikulerProjects)) {
-                loadedSettings.kokurikulerProjects = {
-                    ganjil: loadedSettings.kokurikulerProjects,
-                    genap: []
-                };
-            }
-            if (typeof loadedSettings.midSemesterDate === 'string') {
-                loadedSettings.midSemesterDate = {
-                    ganjil: loadedSettings.midSemesterDate,
-                    genap: loadedSettings.midSemesterDate
-                };
-            }
-            setSettings(prev => ({ ...prev, ...loadedSettings }));
-        }
-        if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
-        if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
-        if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setOfflineMode(false);
+    
+    // Add small delay to ensure UI updates before heavy fetch
+    await new Promise(r => setTimeout(r, 100));
+
+    const data = await api.fetchInitialData();
+    
+    if (data) {
+      if (data.students) setStudents(data.students);
+      if (data.teachers) setTeachers(data.teachers);
+      if (data.history) setAssessmentHistory(data.history);
+      if (data.settings) {
+          let loadedSettings = data.settings;
+          if (Array.isArray(loadedSettings.kokurikulerProjects)) {
+              loadedSettings.kokurikulerProjects = {
+                  ganjil: loadedSettings.kokurikulerProjects,
+                  genap: []
+              };
+          }
+          if (typeof loadedSettings.midSemesterDate === 'string') {
+              loadedSettings.midSemesterDate = {
+                  ganjil: loadedSettings.midSemesterDate,
+                  genap: loadedSettings.midSemesterDate
+              };
+          }
+          setSettings(prev => ({ ...prev, ...loadedSettings }));
       }
-      setLoading(false);
-    };
-    loadData();
+      if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
+      if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
+      if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
+    } else {
+        setOfflineMode(true);
+        setShowOfflineBanner(true);
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleRetryConnection = () => {
+      loadData();
+  };
 
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
@@ -659,37 +675,87 @@ const App: React.FC = () => {
 
   if (!userRole) {
     return (
-      <LoginPage 
-        students={students}
-        teachers={teachers}
-        onLogin={handleLogin}
-        adminPasswordSettings={settings.adminPassword || 'admin123'}
-        teacherPasswordSettings={settings.teacherDefaultPassword || '123456'}
-        leaderPasswordSettings={settings.leaderPassword || '123456'} 
-      />
+      <>
+        {offlineMode && showOfflineBanner && (
+            <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between animate-slide-down">
+                <div className="flex items-center gap-2">
+                    <WifiOff size={14} />
+                    <span>Mode Offline: Menggunakan data lokal. Perubahan tidak tersimpan ke server.</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={handleRetryConnection} 
+                        className="bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                    >
+                        <RefreshCcw size={10} /> Coba Lagi
+                    </button>
+                    <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded">
+                        <X size={12} />
+                    </button>
+                </div>
+            </div>
+        )}
+        <LoginPage 
+            students={students}
+            teachers={teachers}
+            onLogin={handleLogin}
+            adminPasswordSettings={settings.adminPassword || 'admin123'}
+            teacherPasswordSettings={settings.teacherDefaultPassword || '123456'}
+            leaderPasswordSettings={settings.leaderPassword || '123456'} 
+        />
+      </>
     );
   }
 
   // Student View
   if (userRole === 'student' && userData) {
     return (
-        <StudentDashboard 
-            student={userData}
-            allStudents={students}
-            assessmentHistory={assessmentHistory}
-            settings={settings}
-            teachers={teachers}
-            onLogout={handleLogout}
-            subjectChapterConfigs={subjectChapterConfigs}
-            dailyAttendance={dailyAttendance}
-        />
+        <>
+            {offlineMode && showOfflineBanner && (
+                <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <WifiOff size={14} />
+                        <span>Mode Offline: Data mungkin tidak terbaru.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded flex gap-1"><RefreshCcw size={10}/> Coba Lagi</button>
+                        <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded"><X size={12}/></button>
+                    </div>
+                </div>
+            )}
+            <StudentDashboard 
+                student={userData}
+                allStudents={students}
+                assessmentHistory={assessmentHistory}
+                settings={settings}
+                teachers={teachers}
+                onLogout={handleLogout}
+                subjectChapterConfigs={subjectChapterConfigs}
+                dailyAttendance={dailyAttendance}
+            />
+        </>
     );
   }
 
+  // ... (Leader and Main Layout remain identical, just added retry logic) ...
+  // Returning the rest of the component as previously defined but with retry button logic injected into the banner.
+  
   // Leader View
   if (userRole === 'leader' && userData) {
       return (
           <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans relative">
+               {offlineMode && showOfflineBanner && (
+                   <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-2 px-4 backdrop-blur-sm shadow-md flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <WifiOff size={14} />
+                            <span>Mode Offline: Data absensi tidak akan terkirim.</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-1 rounded flex gap-1"><RefreshCcw size={10}/> Coba Lagi</button>
+                            <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-1 bg-black/10 rounded"><X size={12}/></button>
+                        </div>
+                   </div>
+               )}
                <div className="bg-white/80 backdrop-blur-xl px-6 py-4 border-b border-gray-200/50 flex justify-between items-center sticky top-0 z-20 shadow-sm">
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                          <div className="bg-blue-100 p-1.5 rounded-lg"><ClipboardList className="text-[#007aff]" size={20} /></div>
@@ -731,6 +797,24 @@ const App: React.FC = () => {
   return (
     <div className="h-screen bg-[#f5f5f7] flex overflow-hidden font-sans text-gray-900">
         
+        {/* Offline Banner */}
+        {offlineMode && showOfflineBanner && (
+            <div className="fixed top-0 left-0 right-0 z-[60] bg-orange-500/95 text-white text-xs font-bold py-1 shadow-md flex items-center justify-between px-4">
+                <div className="flex items-center gap-2">
+                    <WifiOff size={12} />
+                    <span>Mode Offline: Menggunakan data lokal. Perubahan tidak tersimpan ke server.</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={handleRetryConnection} className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded flex gap-1 items-center transition-colors">
+                        <RefreshCcw size={10} /> Coba Lagi
+                    </button>
+                    <button onClick={() => setShowOfflineBanner(false)} className="opacity-70 hover:opacity-100 p-0.5 hover:bg-black/10 rounded">
+                        <X size={12} />
+                    </button>
+                </div>
+            </div>
+        )}
+
         {/* Sidebar - Dark Indigo Theme */}
         <div className={`fixed inset-y-0 left-0 z-50 ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
             
@@ -868,14 +952,9 @@ const App: React.FC = () => {
                                     onChange={e => setSelectedSubject(e.target.value)}
                                     className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
                                 >
-                                    {userRole === 'teacher' && userData?.subject ? (
-                                        <option value={userData.subject}>{userData.subject}</option>
-                                    ) : (
-                                        <>
-                                            <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
-                                            {teachers.map(t => t.subject).filter((v,i,a) => a.indexOf(v)===i).map(s => <option key={s} value={s}>{s}</option>)}
-                                        </>
-                                    )}
+                                    {userData?.subject && <option value={userData.subject}>{userData.subject}</option>}
+                                    <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
+                                    {userRole === 'admin' && teachers.map(t => t.subject).filter((v,i,a) => a.indexOf(v)===i).map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
 
                                 {activeTab === 'dashboard' && (
