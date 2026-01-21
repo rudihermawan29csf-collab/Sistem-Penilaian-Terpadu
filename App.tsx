@@ -746,8 +746,12 @@ const App: React.FC = () => {
 
                 <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center mb-6' : 'justify-between'}`}>
                     <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'flex-col' : ''}`}>
-                        <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-purple-900/50 shrink-0">
-                            <School size={20} />
+                        <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center shadow-lg shadow-black/20 border border-white/10 shrink-0 overflow-hidden p-1">
+                            <img 
+                                src="https://image2url.com/r2/default/images/1769001049680-d981c280-6340-4989-8563-7b08134c189a.png" 
+                                alt="Logo" 
+                                className="w-full h-full object-contain" 
+                            />
                         </div>
                         {!isSidebarCollapsed && (
                             <div>

@@ -2,7 +2,7 @@
 import { Student, Teacher, GradingSession, AppSettings, ChapterKey } from '../types';
 
 // Corrected URL
-const API_URL = "https://script.google.com/macros/s/AKfycbx4tj_ypUoBmKv856qwqz6F0OS62MTdIQZlR5CAXC6vMjO3F9LXjorcRqctiJP0S6LD/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbzuO6E-ony28PA3Oe1rBBh5JLR6V_h6FKeKe_LuF6jRfZOcc_WVOyuNowfU3mkFFPWG/exec"; 
 
 export const fetchInitialData = async () => {
   try {

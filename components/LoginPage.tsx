@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { School, User, ShieldCheck, ClipboardList, GraduationCap } from 'lucide-react';
+import { User, ShieldCheck, ClipboardList, GraduationCap } from 'lucide-react';
 import { Student, Teacher } from '../types';
 
 interface LoginPageProps {
@@ -79,9 +79,13 @@ const LoginPage: React.FC<LoginPageProps> = ({
       {/* Main Glass Card */}
       <div className="relative z-10 w-full max-w-[400px] bg-white/20 backdrop-blur-2xl border border-white/30 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] p-8 flex flex-col items-center animate-scale-in ring-1 ring-white/20">
         
-        {/* Icon */}
-        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-900/20 border border-white/20">
-           <School size={32} className="text-white" />
+        {/* Logo Image */}
+        <div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-black/10 border border-white/20 backdrop-blur-md p-2">
+           <img 
+             src="https://image2url.com/r2/default/images/1769001049680-d981c280-6340-4989-8563-7b08134c189a.png" 
+             alt="Logo SMPN 3 Pacet" 
+             className="w-full h-full object-contain drop-shadow-md"
+           />
         </div>
 
         {/* Title */}
