@@ -253,7 +253,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
        <div className="flex-1 overflow-auto custom-scrollbar p-6">
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                 <table className="w-full text-left border-collapse">
-                    <thead className="bg-gray-50 text-xs uppercase text-gray-500 font-bold sticky top-0 z-10">
+                    <thead className="bg-blue-50 text-xs uppercase text-blue-800 font-bold sticky top-0 z-10">
                         <tr>
                             <th className="px-6 py-4 border-b border-gray-200 w-16 text-center">No</th>
                             <th className="px-6 py-4 border-b border-gray-200 w-24">NISN</th>
@@ -267,7 +267,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                     <tbody className="divide-y divide-gray-100">
                         {filteredStudents.length > 0 ? (
                             filteredStudents.map((student, index) => (
-                                <tr key={student.id} className="hover:bg-blue-50/30 transition-colors group">
+                                <tr key={student.id} className="hover:bg-blue-50/20 transition-colors group">
                                     <td className="px-6 py-3 text-center text-sm text-gray-500">
                                         {index + 1}
                                     </td>

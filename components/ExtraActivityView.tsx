@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Student, SemesterKey, AppSettings, Teacher, DailyAttendanceLog, AttendanceRecord } from '../types';
-import { Award, Plus, Trash2, Save, UserPlus, X, Edit2, Check, FileText, Calendar, CheckCircle, FileSpreadsheet, PieChart, List, CalendarRange, Lock, Info, Image as ImageIcon, UploadCloud } from 'lucide-react';
+import { Award, Plus, Trash2, Save, UserPlus, X, Edit2, Check, FileText, Calendar, CheckCircle, FileSpreadsheet, PieChart, List, CalendarRange, Lock, Info, Image as ImageIcon, UploadCloud, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface ExtraActivityViewProps {
@@ -35,7 +35,8 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
   
   // Modal selection state
   const [modalClass, setModalClass] = useState('');
-  const [modalStudentId, setModalStudentId] = useState('');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
+  const [studentSearchTerm, setStudentSearchTerm] = useState('');
 
   // Attendance State
   const [attendanceSubTab, setAttendanceSubTab] = useState<'input' | 'monitor' | 'rekap_bulanan' | 'rekap_semester'>('input');
@@ -73,11 +74,6 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
           const newForm: Record<number, 'H'|'S'|'I'|'A'> = {};
           
           enrolledStudents.forEach(s => {
-              // Logic:
-              // If extraLog exists, use it.
-              // If NO extraLog, check if Student has 'S' or 'I' in their CLASS attendance (Wali Kelas input).
-              // If yes, pre-fill with that. Otherwise default 'H'.
-              
               if (extraLog) {
                   const record = extraLog.records.find(r => r.studentId === s.id);
                   newForm[s.id] = record ? record.status : 'H';
@@ -245,20 +241,32 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
       XLSX.writeFile(wb, `${title}_${selectedExtra}.xlsx`);
   };
 
+  // Helper to generate automatic description based on grade
+  const generateDescription = (activityName: string, predikat: string) => {
+      if (predikat === 'A') return `Sangat baik dalam mengikuti kegiatan ${activityName}.`;
+      if (predikat === 'B') return `Baik dalam mengikuti kegiatan ${activityName}.`;
+      if (predikat === 'C') return `Cukup dalam mengikuti kegiatan ${activityName}.`;
+      return `Mengikuti kegiatan ${activityName}.`;
+  };
+
   const handleAddStudent = () => {
-      if (!modalStudentId || !selectedExtra) return;
+      if (selectedStudentIds.length === 0 || !selectedExtra) return;
+      
       const updatedStudents = students.map(s => {
-          if (s.id.toString() === modalStudentId) {
+          if (selectedStudentIds.includes(s.id)) {
               const currentExtras = s.extracurricularRecord?.[semester] || [];
               if (currentExtras.some(e => e.activityName === selectedExtra)) return s;
-              const defaultDesc = settings.extracurriculars.find(e => e.name === selectedExtra)?.description || '';
+              
+              const defaultPredikat = 'A';
+              const defaultDesc = generateDescription(selectedExtra, defaultPredikat);
+              
               return {
                   ...s,
                   extracurricularRecord: {
                       ...s.extracurricularRecord,
                       [semester]: [
                           ...currentExtras,
-                          { activityName: selectedExtra, predikat: 'A', description: defaultDesc }
+                          { activityName: selectedExtra, predikat: defaultPredikat, description: defaultDesc }
                       ]
                   }
               };
@@ -267,7 +275,8 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
       });
       onUpdateStudents(updatedStudents);
       setIsModalOpen(false);
-      setModalStudentId('');
+      setSelectedStudentIds([]);
+      setStudentSearchTerm('');
   };
 
   const handleRemoveStudent = (studentId: number) => {
@@ -292,6 +301,15 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
           if (s.id === studentId) {
               const newExtras = s.extracurricularRecord[semester].map(e => {
                   if (e.activityName === selectedExtra) {
+                      // If predikat changes, automatically update description as well
+                      if (field === 'predikat') {
+                          return { 
+                              ...e, 
+                              predikat: value,
+                              description: generateDescription(selectedExtra, value) 
+                          };
+                      }
+                      // If description is manually edited, just update description
                       return { ...e, [field]: value };
                   }
                   return e;
@@ -322,7 +340,28 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
   };
 
   const availableClasses = Array.from(new Set(students.map(s => s.kelas))).sort();
-  const studentsInModalClass = students.filter(s => s.kelas === modalClass).sort((a,b) => a.name.localeCompare(b.name));
+  
+  // Filter students for modal
+  const studentsInModalClass = students.filter(s => {
+      if (s.kelas !== modalClass) return false;
+      if (studentSearchTerm) {
+          return s.name.toLowerCase().includes(studentSearchTerm.toLowerCase());
+      }
+      return true;
+  }).sort((a,b) => a.name.localeCompare(b.name));
+
+  const toggleStudentSelection = (id: number) => {
+      setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+      if (selectedStudentIds.length === studentsInModalClass.length) {
+          setSelectedStudentIds([]);
+      } else {
+          setSelectedStudentIds(studentsInModalClass.map(s => s.id));
+      }
+  };
+
   const currentCoach = settings.extracurriculars.find(e => e.name === selectedExtra)?.coach || '-';
 
   return (
@@ -472,7 +511,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                 </div>
             )}
 
-            {/* --- ATTENDANCE TAB --- */}
+            {/* --- ATTENDANCE TAB (Reused) --- */}
             {mainTab === 'attendance' && (
                 <div className="h-full flex flex-col animate-scale-in">
                     {/* Sub Tabs */}
@@ -762,44 +801,87 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
       {/* Add Student Modal */}
       {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in flex flex-col max-h-[80vh]">
                   <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                       <h3 className="font-bold text-gray-800">Tambah Peserta {selectedExtra}</h3>
                       <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-400" /></button>
                   </div>
-                  <div className="p-6 space-y-4">
+                  <div className="p-6 space-y-4 flex-1 overflow-hidden flex flex-col">
                       <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Kelas</label>
                           <select 
                               value={modalClass} 
-                              onChange={(e) => { setModalClass(e.target.value); setModalStudentId(''); }}
+                              onChange={(e) => { setModalClass(e.target.value); setSelectedStudentIds([]); setStudentSearchTerm(''); }}
                               className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
                           >
                               <option value="">-- Pilih Kelas --</option>
                               {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
                           </select>
                       </div>
-                      <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Siswa</label>
-                          <select 
-                              value={modalStudentId} 
-                              onChange={(e) => setModalStudentId(e.target.value)}
-                              disabled={!modalClass}
-                              className="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
-                          >
-                              <option value="">-- Pilih Siswa --</option>
-                              {studentsInModalClass.map(s => (
-                                  <option key={s.id} value={s.id}>{s.name}</option>
-                              ))}
-                          </select>
-                      </div>
-                      <div className="pt-4 flex justify-end">
+                      
+                      {modalClass && (
+                          <div className="flex-1 flex flex-col min-h-0">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Siswa (Multi Select)</label>
+                              
+                              {/* Search Box */}
+                              <div className="relative mb-2">
+                                  <input 
+                                      type="text" 
+                                      placeholder="Cari nama siswa..." 
+                                      value={studentSearchTerm}
+                                      onChange={(e) => setStudentSearchTerm(e.target.value)}
+                                      className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                  />
+                                  <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                              </div>
+
+                              {/* Student List */}
+                              <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg custom-scrollbar">
+                                  {studentsInModalClass.length > 0 ? (
+                                      <>
+                                          <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-3 bg-gray-50 sticky top-0 z-10">
+                                              <input 
+                                                  type="checkbox" 
+                                                  checked={selectedStudentIds.length === studentsInModalClass.length && studentsInModalClass.length > 0}
+                                                  onChange={toggleSelectAll}
+                                                  className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-gray-300"
+                                              />
+                                              <span className="text-xs font-bold text-gray-600">Pilih Semua ({studentsInModalClass.length})</span>
+                                          </div>
+                                          {studentsInModalClass.map(s => (
+                                              <div key={s.id} className="flex items-center gap-3 px-3 py-2 hover:bg-purple-50 border-b border-gray-50 last:border-0 transition-colors">
+                                                  <input 
+                                                      type="checkbox" 
+                                                      checked={selectedStudentIds.includes(s.id)}
+                                                      onChange={() => toggleStudentSelection(s.id)}
+                                                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-gray-300"
+                                                  />
+                                                  <div>
+                                                      <p className="text-sm font-medium text-gray-800">{s.name}</p>
+                                                      <p className="text-[10px] text-gray-500">{s.nis}</p>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </>
+                                  ) : (
+                                      <div className="p-4 text-center text-gray-400 text-sm italic">
+                                          Tidak ada siswa ditemukan.
+                                      </div>
+                                  )}
+                              </div>
+                              <p className="text-xs text-right text-purple-600 font-bold mt-1">
+                                  {selectedStudentIds.length} Siswa Dipilih
+                              </p>
+                          </div>
+                      )}
+
+                      <div className="pt-2 flex justify-end border-t border-gray-100">
                           <button 
                               onClick={handleAddStudent}
-                              disabled={!modalStudentId}
-                              className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300"
+                              disabled={selectedStudentIds.length === 0}
+                              className="bg-purple-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 transition-colors shadow-sm"
                           >
-                              Tambahkan
+                              Tambahkan ({selectedStudentIds.length})
                           </button>
                       </div>
                   </div>

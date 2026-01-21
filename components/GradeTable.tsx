@@ -9,13 +9,13 @@ interface GradeTableProps {
   selectedSemester: SemesterKey;
   activeFieldsMap: Record<ChapterKey, FormativeKey[]>;
   visibleChapters: Record<ChapterKey, boolean>;
-  visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>; // New Prop
+  visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>;
   assessmentHistory: GradingSession[];
   academicYear: string;
   onUpdateScore: (id: number, chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null, value: number | null) => void;
   isEditable: boolean;
-  showUpColumn?: boolean; // If true, enables UP column AND triggers compact mode
-  upRanges?: UpRange[]; // Added to support auto calculation based on settings
+  showUpColumn?: boolean;
+  upRanges?: UpRange[];
 }
 
 const GradeTable: React.FC<GradeTableProps> = ({
@@ -46,7 +46,6 @@ const GradeTable: React.FC<GradeTableProps> = ({
 
   const isCellActive = (chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null) => {
     if (!isEditable) return false;
-    // Nilai UP is always active if the column is shown
     if (chapter === 'up') return true; 
 
     return assessmentHistory.some(h => {
@@ -66,12 +65,15 @@ const GradeTable: React.FC<GradeTableProps> = ({
       });
   };
 
-  const getScoreInputClass = (val: number | null) => {
-    const baseClass = "w-full text-center py-1.5 text-sm font-medium focus:outline-none rounded transition-all placeholder-gray-300";
-    if (val === null) return `${baseClass} bg-white text-gray-800 focus:bg-blue-50`;
-    if (val >= 85) return `${baseClass} bg-green-100 text-green-800 focus:bg-green-200 font-semibold`;
-    if (val >= 70) return `${baseClass} bg-yellow-100 text-yellow-800 focus:bg-yellow-200 font-semibold`;
-    return `${baseClass} bg-red-100 text-red-800 focus:bg-red-200 font-semibold`;
+  const getScoreInputClass = (val: number | null, isActive: boolean) => {
+    // Add subtle blue tint if active/unlocked
+    const bgBase = isActive ? "bg-blue-50/50 hover:bg-blue-50" : "bg-transparent";
+    const baseClass = `w-full text-center py-1.5 text-sm font-medium focus:outline-none rounded-md transition-all placeholder-gray-200 ${bgBase}`;
+    
+    if (val === null) return `${baseClass} focus:bg-white focus:ring-2 focus:ring-blue-500/50`;
+    if (val >= 85) return `${baseClass} text-green-700 font-bold bg-green-50/50 focus:ring-2 focus:ring-green-500/50`;
+    if (val >= 70) return `${baseClass} text-gray-900 font-bold focus:ring-2 focus:ring-blue-500/50`;
+    return `${baseClass} text-red-600 font-bold bg-red-50/50 focus:ring-2 focus:ring-red-500/50`;
   };
 
   const handleInputChange = (
@@ -86,108 +88,131 @@ const GradeTable: React.FC<GradeTableProps> = ({
     onUpdateScore(studentId, chapter, field, numVal);
   };
 
-  // Determine active fields for a chapter (merged logic from history + config)
   const getFieldsForChapter = (chapKey: ChapterKey) => {
-      if (showUpColumn) return standardFields; // In UP mode, maybe standard, but layout is compact anyway
-
-      // If configuration exists, respect it strictly
+      if (showUpColumn) return standardFields;
       if (visibleFields && visibleFields[chapKey]) {
           return standardFields.filter(f => visibleFields[chapKey][f]);
       }
-      
-      // Fallback: If no config, maybe use all standard fields?
-      // Or fallback to activeFieldsMap if you want to only show what has data?
-      // For now, let's show all standard fields if no config is present to allow input.
       return standardFields;
   };
 
+  // --- Dynamic Header Colors ---
+  const getHeaderStyle = (type: 'TP' | 'EVAL' | 'UP' | 'NA', index: number = 0) => {
+      if (showUpColumn && type !== 'UP') return "bg-orange-600 border-orange-500"; // Fallback if UP Mode is active but logic below overrides it specific columns
+
+      if (type === 'UP') return "bg-orange-700 border-orange-600";
+      if (type === 'EVAL') return "bg-slate-700 border-slate-600"; // Dark Grey for Evaluasi Akhir
+      if (type === 'NA') return "bg-slate-800 border-slate-700";
+      
+      // Alternating Colors for TPs
+      // Index 0 (TP1) -> Blue
+      // Index 1 (TP2) -> Indigo / Teal
+      return index % 2 === 0 
+        ? "bg-blue-600 border-blue-500" 
+        : "bg-teal-600 border-teal-500";
+  };
+
+  const getSubHeaderStyle = (type: 'TP' | 'EVAL', isActive: boolean, index: number = 0) => {
+      if (type === 'EVAL') {
+          return isActive 
+            ? "bg-slate-800 text-white hover:bg-slate-900 border-slate-600" 
+            : "bg-slate-700 text-slate-100 border-slate-600";
+      }
+      
+      // TP Subheaders inherit from parent TP color but lighter/darker based on activity
+      const isEven = index % 2 === 0;
+      if (isEven) { // Blue Theme
+          return isActive 
+            ? "bg-blue-800 text-white hover:bg-blue-900 border-blue-500" 
+            : "bg-blue-600 text-blue-100 border-blue-500";
+      } else { // Teal Theme
+          return isActive 
+            ? "bg-teal-800 text-white hover:bg-teal-900 border-teal-500" 
+            : "bg-teal-600 text-teal-100 border-teal-500";
+      }
+  };
+
   return (
-    <div className="bg-white flex flex-col relative">
+    <div className="flex flex-col relative h-full">
       {/* Detail Popover */}
       {selectedSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm" onClick={() => setSelectedSession(null)}>
-            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-scale-in border border-gray-100" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/10 backdrop-blur-sm" onClick={() => setSelectedSession(null)}>
+            <div className="bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-scale-in border border-white/20 ring-1 ring-black/5" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-start mb-4">
                     <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-                        <Info size={20} className="text-blue-600" /> Detail Penilaian
+                        <Info size={20} className="text-blue-500" /> Detail Penilaian
                     </h3>
-                    <button onClick={() => setSelectedSession(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                    <button onClick={() => setSelectedSession(null)} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={20} /></button>
                 </div>
-                <div className="space-y-3 text-sm">
+                <div className="space-y-3 text-sm text-gray-600">
                     <p><strong>Target:</strong> {selectedSession.type === 'bab' ? `${selectedSession.chapterKey?.replace('bab', 'TP ')} - ${selectedSession.formativeKey?.toUpperCase()}` : selectedSession.type.toUpperCase()}</p>
                     <p><strong>Tanggal:</strong> {selectedSession.date}</p>
-                    <p><strong>Ket:</strong> {selectedSession.description}</p>
+                    <p className="bg-gray-50 p-2 rounded-lg border border-gray-100 italic">"{selectedSession.description}"</p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end">
-                    <button onClick={() => setSelectedSession(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg">Tutup</button>
+                    <button onClick={() => setSelectedSession(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">Tutup</button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-x-auto custom-scrollbar relative">
+      {/* Table Container */}
+      <div className="overflow-auto custom-scrollbar relative h-full">
         <table className="border-collapse w-full min-w-max">
-          <thead className="sticky top-0 z-20 bg-[#f9f9fb] shadow-sm">
+          <thead className="sticky top-0 z-20 shadow-sm">
             <tr>
-              <th rowSpan={2} className="p-3 w-12 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase sticky left-0 z-30">No</th>
-              <th rowSpan={2} className="p-3 w-32 border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase">NIS</th>
-              <th rowSpan={2} className="p-3 min-w-[200px] border-b border-r border-gray-300 bg-[#f9f9fb] text-xs font-bold text-gray-500 uppercase text-left">Nama Siswa</th>
+              <th rowSpan={2} className={`p-3 w-12 border-b border-r text-[10px] font-bold text-white uppercase sticky left-0 z-30 ${showUpColumn ? 'bg-orange-600' : 'bg-blue-600'}`}>No</th>
+              <th rowSpan={2} className={`p-3 w-28 border-b border-r text-[10px] font-bold text-white uppercase text-left pl-4 ${showUpColumn ? 'bg-orange-600' : 'bg-blue-600'}`}>NIS</th>
+              <th rowSpan={2} className={`p-3 min-w-[250px] border-b border-r text-[10px] font-bold text-white uppercase text-left pl-4 sticky left-[112px] z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${showUpColumn ? 'bg-orange-600' : 'bg-blue-600'}`}>Nama Siswa</th>
               
-              {chapters.map(chap => {
+              {chapters.map((chap, index) => {
                   const fieldsToShow = getFieldsForChapter(chap.key);
-                  // Colspan is fields length + 1 (for Rerata)
                   const colSpan = showUpColumn ? 1 : (fieldsToShow.length + 1);
                   return (
-                    <th key={chap.key} colSpan={colSpan} className="p-2 border-b border-r border-gray-300 bg-blue-50 text-xs font-bold text-blue-700 uppercase text-center">{chap.label}</th>
+                    <th key={chap.key} colSpan={colSpan} className={`p-2 border-b border-r text-[10px] font-bold text-white uppercase text-center tracking-wider ${getHeaderStyle('TP', index)}`}>{chap.label}</th>
                   );
               })}
               
-              <th colSpan={3} className="p-2 border-b border-gray-300 bg-purple-50 text-xs font-bold text-purple-700 uppercase text-center">Evaluasi Akhir</th>
+              <th colSpan={3} className={`p-2 border-b text-[10px] font-bold text-white uppercase text-center tracking-wider ${getHeaderStyle('EVAL')}`}>Evaluasi Akhir</th>
               
-              {/* UP Column Header Group */}
               {showUpColumn && (
-                  <th rowSpan={2} className="p-2 border-b border-gray-300 bg-orange-50 text-xs font-bold text-orange-700 uppercase text-center w-24 sticky right-0 z-30 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
-                      <div className="flex flex-col items-center gap-1">
-                          <Star size={14} />
-                          Nilai UP
-                      </div>
+                  <th rowSpan={2} className={`p-2 border-b text-[10px] font-bold text-white uppercase text-center w-24 sticky right-0 z-30 ${getHeaderStyle('UP')}`}>
+                      Nilai UP
                   </th>
               )}
             </tr>
             
             <tr>
-               {chapters.map(chap => {
+               {chapters.map((chap, index) => {
                   const fieldsToShow = getFieldsForChapter(chap.key);
+                  const tpHeaderStyle = getHeaderStyle('TP', index);
+                  
                   return (
                   <React.Fragment key={chap.key}>
                      {!showUpColumn && fieldsToShow.map(f => {
                         const session = getSessionForHeader(chap.key, f);
                         return (
-                           <th key={f} onClick={() => session && setSelectedSession(session)} className={`p-2 w-12 border-b border-r border-gray-200 text-[10px] font-semibold text-gray-600 uppercase text-center ${session ? 'bg-blue-100/80 cursor-pointer text-blue-800' : 'bg-blue-50/50'}`}>
+                           <th key={f} onClick={() => session && setSelectedSession(session)} className={`p-2 w-12 border-b border-r text-[9px] font-bold uppercase text-center transition-colors ${getSubHeaderStyle('TP', !!session, index)} ${session ? 'cursor-pointer' : ''}`}>
                               {f === 'sum' ? 'S' : f.toUpperCase()}
                            </th>
                         );
                      })}
-                     <th className="p-2 w-12 border-b border-r border-gray-300 bg-blue-100/50 text-[10px] font-bold text-blue-800 uppercase text-center">R</th>
+                     <th className={`p-2 w-12 border-b border-r text-[9px] font-bold text-white uppercase text-center ${tpHeaderStyle} brightness-90`}>R</th>
                   </React.Fragment>
                )})}
                
-               {/* KTS & SAS Headers */}
-               <th className={`p-2 w-16 border-b border-r border-gray-200 text-[10px] font-semibold uppercase text-center ${getSessionForHeader('kts', null) ? 'bg-purple-100/80 text-purple-800' : 'bg-purple-50/50 text-gray-600'}`}>KTS</th>
-               <th className={`p-2 w-16 border-b border-r border-gray-200 text-[10px] font-semibold uppercase text-center ${getSessionForHeader('sas', null) ? 'bg-purple-100/80 text-purple-800' : 'bg-purple-50/50 text-gray-600'}`}>SAS</th>
-               <th className={`p-2 w-16 border-b border-gray-300 bg-purple-100/50 text-[10px] font-bold text-purple-800 uppercase text-center ${!showUpColumn ? 'sticky right-0 z-30 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]' : ''}`}>NA</th>
+               <th className={`p-2 w-16 border-b border-r text-[9px] font-bold uppercase text-center ${getSubHeaderStyle('EVAL', !!getSessionForHeader('kts', null))} ${getSessionForHeader('kts', null) ? 'cursor-pointer' : ''}`} onClick={() => { const s = getSessionForHeader('kts', null); if(s) setSelectedSession(s); }}>KTS</th>
+               <th className={`p-2 w-16 border-b border-r text-[9px] font-bold uppercase text-center ${getSubHeaderStyle('EVAL', !!getSessionForHeader('sas', null))} ${getSessionForHeader('sas', null) ? 'cursor-pointer' : ''}`} onClick={() => { const s = getSessionForHeader('sas', null); if(s) setSelectedSession(s); }}>SAS</th>
+               <th className={`p-2 w-16 border-b text-[9px] font-bold text-white uppercase text-center ${getHeaderStyle('NA')} ${!showUpColumn ? 'sticky right-0 z-30 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]' : ''}`}>NA</th>
             </tr>
           </thead>
           
-          <tbody className="divide-y divide-gray-200 bg-white">
+          <tbody className="bg-white">
              {students.map((student, index) => {
                 const semesterData = student.grades[selectedSemester];
                 const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
                 
-                // Automatic UP Calculation for Display
                 let displayUp: number | null = semesterData.nilaiUp;
-                
                 if (showUpColumn && displayUp === null && finalGrade !== null && upRanges.length > 0) {
                     const range = upRanges.find(r => finalGrade >= r.min && finalGrade <= r.max);
                     if (range) {
@@ -196,50 +221,58 @@ const GradeTable: React.FC<GradeTableProps> = ({
                 }
 
                 return (
-                    <tr key={student.id} className="hover:bg-blue-50/20 transition-colors group">
-                       <td className="p-3 text-center text-sm text-gray-500 font-medium sticky left-0 bg-white group-hover:bg-blue-50/20 border-r border-gray-200 z-10">{index + 1}</td>
-                       <td className="p-3 text-sm font-mono text-gray-600 border-r border-gray-200">{student.nis}</td>
-                       <td className="p-3 text-sm font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap">{student.name}</td>
+                    <tr key={student.id} className="group hover:bg-blue-50/30 transition-colors border-b border-gray-50">
+                       <td className="p-2 text-center text-xs text-gray-400 font-medium sticky left-0 bg-white group-hover:bg-blue-50/30 border-r border-gray-100 z-10">{index + 1}</td>
+                       <td className="p-2 text-xs font-mono text-gray-500 border-r border-gray-100 pl-4 sticky left-10 bg-white group-hover:bg-blue-50/30 z-10">{student.nis}</td>
+                       <td className="p-2 text-sm font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap pl-4 sticky left-[112px] bg-white group-hover:bg-blue-50/30 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
 
                        {chapters.map(chap => {
                            const fieldsToShow = getFieldsForChapter(chap.key);
                            return (
                            <React.Fragment key={chap.key}>
-                               {!showUpColumn && fieldsToShow.map(f => (
-                                   <td key={f} className={`p-1 border-r border-gray-100 text-center ${!isCellActive(chap.key, f) ? 'bg-gray-50/30' : ''}`}>
-                                       {isCellActive(chap.key, f) ? (
-                                           <input type="number" value={semesterData[chap.key][f] ?? ''} onChange={(e) => handleInputChange(e, student.id, chap.key, f)} className={getScoreInputClass(semesterData[chap.key][f])} placeholder="-" />
-                                       ) : <span className="text-sm text-gray-300 py-1.5 block">{semesterData[chap.key][f] ?? '-'}</span>}
+                               {!showUpColumn && fieldsToShow.map(f => {
+                                   const unlocked = isCellActive(chap.key, f);
+                                   return (
+                                   <td key={f} className={`p-1 border-r border-gray-50 text-center ${unlocked ? 'bg-blue-50/30' : ''}`}>
+                                       {unlocked ? (
+                                           <input type="number" value={semesterData[chap.key][f] ?? ''} onChange={(e) => handleInputChange(e, student.id, chap.key, f)} className={getScoreInputClass(semesterData[chap.key][f], true)} placeholder="-" />
+                                       ) : <span className="text-xs text-gray-300 block py-1.5">{semesterData[chap.key][f] ?? '-'}</span>}
                                    </td>
-                               ))}
-                               <td className="p-2 border-r border-gray-200 text-center bg-blue-50/10 font-bold text-blue-700 text-xs">
-                                  {calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []) ?? '-'}
+                               )})}
+                               <td className="p-1 border-r border-gray-100 text-center bg-gray-50/30">
+                                  <span className={`text-xs font-bold ${
+                                      (() => {
+                                          const avg = calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []);
+                                          if (avg === null) return 'text-gray-300';
+                                          if (avg < 75) return 'text-red-500';
+                                          return 'text-gray-600';
+                                      })()
+                                  }`}>
+                                      {calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []) ?? '-'}
+                                  </span>
                                </td>
                            </React.Fragment>
                        )})}
                        
-                       {/* KTS & SAS */}
-                       <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('kts', null) && !showUpColumn ? 'bg-gray-50/30' : ''}`}>
-                            {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, student.id, 'kts', null)} className={getScoreInputClass(semesterData.kts)} placeholder="-" /> : <span className="text-sm text-gray-600 font-semibold">{semesterData.kts ?? '-'}</span>}
+                       <td className={`p-1 border-r border-gray-50 text-center ${isCellActive('kts', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
+                            {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, student.id, 'kts', null)} className={getScoreInputClass(semesterData.kts, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.kts ?? '-'}</span>}
                        </td>
-                       <td className={`p-1 border-r border-gray-100 text-center ${!isCellActive('sas', null) && !showUpColumn ? 'bg-gray-50/30' : ''}`}>
-                            {isCellActive('sas', null) && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, student.id, 'sas', null)} className={getScoreInputClass(semesterData.sas)} placeholder="-" /> : <span className="text-sm text-gray-600 font-semibold">{semesterData.sas ?? '-'}</span>}
+                       <td className={`p-1 border-r border-gray-100 text-center ${isCellActive('sas', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
+                            {isCellActive('sas', null) && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, student.id, 'sas', null)} className={getScoreInputClass(semesterData.sas, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.sas ?? '-'}</span>}
                        </td>
                        
-                       {/* NA */}
-                       <td className={`p-2 border-l border-gray-200 text-center font-bold text-purple-700 text-sm bg-purple-50/20 ${!showUpColumn ? 'sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-white' : ''}`}>
+                       <td className={`p-2 border-l border-gray-200 text-center font-bold text-sm ${!showUpColumn ? 'sticky right-0 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-slate-50 group-hover:bg-blue-100/50' : 'bg-blue-50/50'} ${finalGrade && finalGrade < 75 ? 'text-red-600' : 'text-slate-900'}`}>
                             {finalGrade ?? '-'}
                        </td>
 
-                       {/* UP Column (Editable Always if shown) */}
                        {showUpColumn && (
-                           <td className="p-1 border-l border-gray-300 text-center bg-orange-50/30 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.05)] bg-white group-hover:bg-orange-50/30">
+                           <td className="p-1 border-l border-gray-200 text-center sticky right-0 z-10 bg-white group-hover:bg-blue-50/30 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                 <input 
                                     type="number" 
                                     value={displayUp ?? ''} 
                                     onChange={(e) => handleInputChange(e, student.id, 'up', null)}
-                                    className={`w-full text-center py-1.5 text-sm font-bold focus:outline-none rounded transition-all placeholder-gray-300 ${
-                                        displayUp !== null ? 'bg-orange-100 text-orange-800' : 'bg-transparent text-gray-800'
+                                    className={`w-full text-center py-1.5 text-sm font-bold focus:outline-none rounded-md transition-all ${
+                                        displayUp !== null ? 'text-orange-700 bg-orange-50/50' : 'bg-transparent text-gray-800'
                                     }`}
                                     placeholder="-" 
                                     disabled={!isEditable}

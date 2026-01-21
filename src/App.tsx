@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
@@ -365,106 +364,35 @@ const App: React.FC = () => {
       const activeFields = getActiveFieldsMap();
       const visible = getVisibleChapters();
       
-      const headerRow1: any[] = ["No", "NIS", "Nama"];
-      const headerRow2: any[] = [null, null, null];
-      const merges: any[] = [
-          { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, // No
-          { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } }, // NIS
-          { s: { r: 0, c: 2 }, e: { r: 1, c: 2 } }, // Nama
-      ];
-
-      let currentColIndex = 3;
-
-      // Build Headers with Merges
-      (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
-          if (visible[c]) {
-              const fields = activeFields[c];
-              if (fields.length > 0) {
-                  // Add Top Header (TP X)
-                  headerRow1.push(c.replace('bab', 'TP ').toUpperCase());
-                  // Fill remaining top header columns with null for merging
-                  for (let i = 1; i < fields.length; i++) {
-                      headerRow1.push(null);
-                  }
-                  
-                  // Add Merge info
-                  merges.push({
-                      s: { r: 0, c: currentColIndex },
-                      e: { r: 0, c: currentColIndex + fields.length - 1 }
-                  });
-
-                  // Add Sub Headers (F1, F2...)
-                  fields.forEach(f => {
-                      headerRow2.push(f === 'sum' ? 'Sum' : f.toUpperCase());
-                  });
-
-                  currentColIndex += fields.length;
-              } else {
-                  // Fallback if no active fields but chapter is visible (shouldn't happen often)
-                  headerRow1.push(c.replace('bab', 'TP ').toUpperCase());
-                  headerRow2.push('-');
-                  currentColIndex++;
-              }
-          }
-      });
-
-      // KTS, SAS, NA
-      headerRow1.push("KTS"); headerRow2.push(null);
-      merges.push({ s: { r: 0, c: currentColIndex }, e: { r: 1, c: currentColIndex } });
-      currentColIndex++;
-
-      headerRow1.push("SAS"); headerRow2.push(null);
-      merges.push({ s: { r: 0, c: currentColIndex }, e: { r: 1, c: currentColIndex } });
-      currentColIndex++;
-
-      headerRow1.push("NA"); headerRow2.push(null);
-      merges.push({ s: { r: 0, c: currentColIndex }, e: { r: 1, c: currentColIndex } });
-      currentColIndex++;
-
-      if (activeTab === 'nilai_up') {
-          headerRow1.push("Nilai UP"); headerRow2.push(null);
-          merges.push({ s: { r: 0, c: currentColIndex }, e: { r: 1, c: currentColIndex } });
-          currentColIndex++;
-      }
-
-      // Build Data Rows
-      const dataRows = targets.map((s, idx) => {
+      const data = targets.map((s, idx) => {
+          const row: any = { No: idx + 1, NIS: s.nis, Nama: s.name };
           const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
-          const row = [idx + 1, s.nis, s.name];
           
           if (!grades) return row;
 
           (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
               if (visible[c]) {
                   const fields = activeFields[c];
-                  if (fields.length > 0) {
-                      fields.forEach(f => {
-                          const val = grades[c][f];
-                          row.push(val !== null ? val : '-');
-                      });
-                  } else {
-                      row.push('-'); 
-                  }
+                  fields.forEach(f => {
+                      row[`${c.replace('bab','TP').toUpperCase()}_${f.toUpperCase()}`] = grades[c][f];
+                  });
               }
           });
-
-          row.push(grades.kts !== null ? grades.kts : '-');
-          row.push(grades.sas !== null ? grades.sas : '-');
-          const na = calculateFinalGrade(grades, activeFields, visible);
-          row.push(na !== null ? na : '-');
+          row['KTS'] = grades.kts;
+          row['SAS'] = grades.sas;
           
-          if (activeTab === 'nilai_up') row.push(grades.nilaiUp !== null ? grades.nilaiUp : '-');
+          // Calculate NA
+          const na = calculateFinalGrade(grades, activeFields, visible);
+          row['Nilai Akhir'] = na;
+          
+          if (activeTab === 'nilai_up') {
+              row['Nilai UP'] = grades.nilaiUp;
+          }
 
           return row;
       });
 
-      // Construct Workbook manually using AOA (Array of Arrays)
-      const ws = XLSX.utils.aoa_to_sheet([headerRow1, headerRow2, ...dataRows]);
-      
-      // Apply merges
-      ws['!merges'] = merges;
-
-      // Add worksheet to workbook
+      const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Nilai ${selectedClass}`);
       XLSX.writeFile(wb, `Nilai_${selectedSubject}_${selectedClass}.xlsx`);
@@ -489,42 +417,22 @@ const App: React.FC = () => {
 
       const activeFields = getActiveFieldsMap();
       const visible = getVisibleChapters();
-      
-      // Construct Nested Headers for PDF
-      const headerRow1: any[] = [
-          { content: 'No', rowSpan: 2, styles: { halign: 'center' } }, 
-          { content: 'Nama', rowSpan: 2, styles: { halign: 'left' } }
-      ];
-      const headerRow2: any[] = []; // Sub headers
+      const chapters = (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).filter(c => visible[c]);
 
-      (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
-          if (visible[c]) {
-              const fields = activeFields[c];
-              if (fields.length > 0) {
-                  // Add Parent Header
-                  headerRow1.push({ 
-                      content: c.replace('bab', 'TP ').toUpperCase(), 
-                      colSpan: fields.length,
-                      styles: { halign: 'center' }
-                  });
-                  // Add Sub Headers
-                  fields.forEach(f => {
-                      headerRow2.push({
-                          content: f === 'sum' ? 'Sum' : f.toUpperCase(),
-                          styles: { halign: 'center' }
-                      });
-                  });
-              } else {
-                  // Fallback
-                  headerRow1.push({ content: c.replace('bab', 'TP '), rowSpan: 2 });
-              }
+      // Construct Header dynamically
+      const headRow = ['No', 'Nama'];
+      chapters.forEach(c => {
+          const fields = activeFields[c];
+          if (fields.length > 0) {
+              fields.forEach(f => {
+                  headRow.push(`${c.replace('bab', 'TP ')} (${f === 'sum' ? 'S' : f.toUpperCase()})`);
+              });
+          } else {
+              headRow.push(c.replace('bab', 'TP '));
           }
       });
-
-      headerRow1.push({ content: 'KTS', rowSpan: 2 });
-      headerRow1.push({ content: 'SAS', rowSpan: 2 });
-      headerRow1.push({ content: 'NA', rowSpan: 2 });
-      if (activeTab === 'nilai_up') headerRow1.push({ content: 'UP', rowSpan: 2 });
+      headRow.push('KTS', 'SAS', 'NA');
+      if (activeTab === 'nilai_up') headRow.push('UP');
 
       const body = targets.map((s, idx) => {
           const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
@@ -532,17 +440,15 @@ const App: React.FC = () => {
 
           const row = [idx + 1, s.name];
           
-          (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
-              if (visible[c]) {
-                  const fields = activeFields[c];
-                  if (fields.length > 0) {
-                      fields.forEach(f => {
-                          const val = grades[c][f];
-                          row.push(val !== null ? val : '-');
-                      });
-                  } else {
-                      row.push('-'); 
-                  }
+          chapters.forEach(c => {
+              const fields = activeFields[c];
+              if (fields.length > 0) {
+                  fields.forEach(f => {
+                      const val = grades[c][f];
+                      row.push(val !== null ? val : '-');
+                  });
+              } else {
+                  row.push('-'); 
               }
           });
 
@@ -558,11 +464,11 @@ const App: React.FC = () => {
 
       autoTable(doc, {
           startY: 45,
-          head: [headerRow1, headerRow2],
+          head: [headRow],
           body: body,
           theme: 'grid',
           styles: { fontSize: 8, cellPadding: 1 },
-          headStyles: { fillColor: [41, 128, 185], textColor: 255, halign: 'center', valign: 'middle', lineWidth: 0.1, lineColor: 255 },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, halign: 'center', valign: 'middle' },
           columnStyles: { 0: { halign: 'center', cellWidth: 10 } }
       });
 

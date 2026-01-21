@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Student, SemesterKey, ChapterKey, GradingSession, FormativeKey, AppSettings, Teacher, SemesterData } from '../types';
-import { getActiveFields, calculateChapterAverage, calculateFinalGrade, createEmptySemesterData } from '../utils';
-import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList, TrendingUp, Eye } from 'lucide-react';
+import { Student, SemesterKey, ChapterKey, GradingSession, FormativeKey, AppSettings, Teacher, SemesterData, DailyAttendanceLog } from '../types';
+import { calculateChapterAverage, calculateFinalGrade, createEmptySemesterData } from '../utils';
+import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList, TrendingUp, Eye, CalendarRange } from 'lucide-react';
 import MidSemesterReportView from './MidSemesterReportView';
 
 interface StudentDashboardProps {
@@ -13,6 +13,7 @@ interface StudentDashboardProps {
   teachers: Teacher[];
   onLogout: () => void;
   subjectChapterConfigs?: Record<string, Record<ChapterKey, boolean>>;
+  dailyAttendance: DailyAttendanceLog[]; // New Prop
 }
 
 const StudentDashboard: React.FC<StudentDashboardProps> = ({ 
@@ -22,12 +23,16 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     settings, 
     teachers, 
     onLogout,
-    subjectChapterConfigs = {} 
+    subjectChapterConfigs = {},
+    dailyAttendance = [] // Default empty
 }) => {
   // Set default tab to 'summary' (Rekap Nilai)
-  const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi' | 'rapor_sisipan'>('summary');
+  const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi' | 'rapor_sisipan' | 'attendance'>('summary');
   const [selectedSemester, setSelectedSemester] = useState<SemesterKey>(settings.activeSemester);
   
+  // Attendance Filter State
+  const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
+
   // Clock State
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -105,11 +110,173 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     return map;
   };
 
+  // --- ATTENDANCE CALCULATIONS ---
+  
+  // Semester Summary (Total Accumulation)
+  const attendanceSemesterStats = useMemo(() => {
+      const stats = { h: 0, s: 0, i: 0, a: 0 };
+      
+      // Filter logs for this student's class (Assumes all logs in DB are current semester for simplicity, 
+      // or should filter by date range if semester dates defined)
+      const classLogs = dailyAttendance.filter(l => l.className === student.kelas);
+      
+      classLogs.forEach(log => {
+          const record = log.records.find(r => r.studentId === student.id);
+          if (record) {
+              if (record.status === 'H') stats.h++;
+              else if (record.status === 'S') stats.s++;
+              else if (record.status === 'I') stats.i++;
+              else if (record.status === 'A') stats.a++;
+          }
+      });
+      return stats;
+  }, [dailyAttendance, student]);
+
+  // Monthly Detail Data
+  const attendanceMonthlyData = useMemo(() => {
+      const logs = dailyAttendance.filter(l => 
+          l.className === student.kelas && 
+          l.date.startsWith(selectedAttendanceMonth)
+      ).sort((a,b) => a.date.localeCompare(b.date));
+
+      const details = logs.map(log => {
+          const record = log.records.find(r => r.studentId === student.id);
+          return {
+              date: log.date,
+              status: record ? record.status : '-',
+              note: record?.note || '-'
+          };
+      });
+
+      // Stats for this specific month
+      const stats = { h: 0, s: 0, i: 0, a: 0 };
+      details.forEach(d => {
+          if (d.status === 'H') stats.h++;
+          else if (d.status === 'S') stats.s++;
+          else if (d.status === 'I') stats.i++;
+          else if (d.status === 'A') stats.a++;
+      });
+
+      return { details, stats };
+  }, [dailyAttendance, student, selectedAttendanceMonth]);
+
+
   // --- RENDERERS ---
 
   const handleViewDetail = (subject: string) => {
     setSelectedSubject(subject);
     setActiveTab('detail');
+  };
+
+  // RENDER: ATTENDANCE VIEW
+  const renderAttendanceView = () => {
+      return (
+          <div className="space-y-6 animate-scale-in">
+              {/* Semester Summary Cards */}
+              <div>
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <PieChart size={16}/> Rekap Semester Ini
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 rounded-xl shadow-sm border border-green-100 flex flex-col items-center justify-center relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-2 opacity-10"><CheckCircle size={48} className="text-green-500" /></div>
+                          <span className="text-2xl font-bold text-green-600">{attendanceSemesterStats.h}</span>
+                          <span className="text-xs font-bold text-green-500 uppercase mt-1">Hadir</span>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col items-center justify-center relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-2 opacity-10"><Info size={48} className="text-blue-500" /></div>
+                          <span className="text-2xl font-bold text-blue-600">{attendanceSemesterStats.s}</span>
+                          <span className="text-xs font-bold text-blue-500 uppercase mt-1">Sakit</span>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl shadow-sm border border-yellow-100 flex flex-col items-center justify-center relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-2 opacity-10"><AlertCircle size={48} className="text-yellow-500" /></div>
+                          <span className="text-2xl font-bold text-yellow-600">{attendanceSemesterStats.i}</span>
+                          <span className="text-xs font-bold text-yellow-500 uppercase mt-1">Izin</span>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl shadow-sm border border-red-100 flex flex-col items-center justify-center relative overflow-hidden">
+                          <div className="absolute right-0 top-0 p-2 opacity-10"><AlertTriangle size={48} className="text-red-500" /></div>
+                          <span className="text-2xl font-bold text-red-600">{attendanceSemesterStats.a}</span>
+                          <span className="text-xs font-bold text-red-500 uppercase mt-1">Alpha</span>
+                      </div>
+                  </div>
+              </div>
+
+              {/* Monthly Detail */}
+              <div>
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                          <CalendarRange size={16}/> Riwayat Bulanan
+                      </h3>
+                      <input 
+                          type="month" 
+                          value={selectedAttendanceMonth}
+                          onChange={(e) => setSelectedAttendanceMonth(e.target.value)}
+                          className="bg-white border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                      />
+                  </div>
+
+                  {/* Monthly Stats Bar */}
+                  <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+                      <div className="bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-green-100">
+                          Hadir: {attendanceMonthlyData.stats.h}
+                      </div>
+                      <div className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-blue-100">
+                          Sakit: {attendanceMonthlyData.stats.s}
+                      </div>
+                      <div className="bg-yellow-50 text-yellow-700 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-yellow-100">
+                          Izin: {attendanceMonthlyData.stats.i}
+                      </div>
+                      <div className="bg-red-50 text-red-700 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-red-100">
+                          Alpha: {attendanceMonthlyData.stats.a}
+                      </div>
+                  </div>
+
+                  {/* History Table */}
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                          <thead className="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-200">
+                              <tr>
+                                  <th className="px-6 py-3 w-32">Tanggal</th>
+                                  <th className="px-6 py-3 text-center w-24">Status</th>
+                                  <th className="px-6 py-3">Keterangan</th>
+                              </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 text-sm">
+                              {attendanceMonthlyData.details.length > 0 ? (
+                                  attendanceMonthlyData.details.map((item, idx) => (
+                                      <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                          <td className="px-6 py-3 font-mono text-gray-600">
+                                              {new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                          </td>
+                                          <td className="px-6 py-3 text-center">
+                                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold text-xs ${
+                                                  item.status === 'H' ? 'bg-green-100 text-green-700' :
+                                                  item.status === 'S' ? 'bg-blue-100 text-blue-700' :
+                                                  item.status === 'I' ? 'bg-yellow-100 text-yellow-700' :
+                                                  item.status === 'A' ? 'bg-red-100 text-red-700' :
+                                                  'bg-gray-100 text-gray-400'
+                                              }`}>
+                                                  {item.status}
+                                              </span>
+                                          </td>
+                                          <td className="px-6 py-3 text-gray-600">
+                                              {item.note !== '-' ? item.note : <span className="text-gray-300 italic">Tidak ada keterangan</span>}
+                                          </td>
+                                      </tr>
+                                  ))
+                              ) : (
+                                  <tr>
+                                      <td colSpan={3} className="px-6 py-8 text-center text-gray-400">
+                                          Tidak ada data absensi untuk bulan ini.
+                                      </td>
+                                  </tr>
+                              )}
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      );
   };
 
   // RENDER: DETAIL VIEW (Existing)
@@ -531,12 +698,18 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       {/* Navigation Tabs */}
       <div className="max-w-3xl mx-auto w-full px-4 mt-4">
-          <div className="flex p-1 bg-gray-200 rounded-xl overflow-x-auto">
+          <div className="flex p-1 bg-gray-200 rounded-xl overflow-x-auto gap-1">
               <button 
                 onClick={() => setActiveTab('summary')}
                 className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'summary' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                   <TrendingUp size={14} /> Rekap Nilai
+              </button>
+              <button 
+                onClick={() => setActiveTab('attendance')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${activeTab === 'attendance' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                  <Calendar size={14} /> Riwayat Absensi
               </button>
               <button 
                 onClick={() => setActiveTab('tanggungan')}
@@ -564,6 +737,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       <div className={`flex-1 p-4 w-full pb-20 ${activeTab === 'rapor_sisipan' ? 'max-w-full px-0 py-0 h-full' : 'max-w-3xl mx-auto'}`}>
           {activeTab === 'detail' && renderDetailView()}
           {activeTab === 'summary' && renderSummaryView()}
+          {activeTab === 'attendance' && renderAttendanceView()}
           {activeTab === 'tanggungan' && renderMonitoringList('tanggungan')}
           {activeTab === 'remidi' && renderMonitoringList('remidi')}
           {activeTab === 'rapor_sisipan' && (
@@ -573,6 +747,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       teachers={teachers} 
                       settings={settings} 
                       assessmentHistory={assessmentHistory} 
+                      allowDownload={false} // Disable downloads for students
                   />
               </div>
           )}

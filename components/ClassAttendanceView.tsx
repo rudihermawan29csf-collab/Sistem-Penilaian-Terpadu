@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, DailyAttendanceLog, AttendanceRecord } from '../types';
 import { Calendar, Save, Search, Filter, CheckCircle, XCircle, Clock, Download, FileSpreadsheet, PieChart, List, CalendarRange, Lock, Info } from 'lucide-react';
@@ -320,7 +319,9 @@ const ClassAttendanceView: React.FC<ClassAttendanceViewProps> = ({
                                                                 </span>
                                                                 <span className="italic opacity-80">{record.note}</span>
                                                             </div>
-                                                            <Info size={14} className="text-yellow-700 ml-auto shrink-0 opacity-50" title="Diinput oleh Wali Kelas" />
+                                                            <div title="Diinput oleh Wali Kelas" className="ml-auto shrink-0">
+                                                                <Info size={14} className="text-yellow-700 opacity-50" />
+                                                            </div>
                                                         </div>
                                                     ) : (
                                                         <div className="flex justify-center gap-1">

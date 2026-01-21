@@ -110,19 +110,19 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({ teachers, setTeachers
       <div className="flex-1 overflow-x-auto custom-scrollbar p-6">
         <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm inline-block min-w-full align-middle">
           <table className="min-w-max w-full border-collapse">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold tracking-wider">
+            <thead className="bg-blue-50 text-xs text-blue-800 uppercase font-bold tracking-wider">
               <tr>
-                <th className="p-3 border-r border-gray-200 text-center w-12 sticky left-0 bg-gray-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
-                <th className="p-3 border-r border-gray-200 text-left min-w-[200px] sticky left-12 bg-gray-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Guru</th>
+                <th className="p-3 border-r border-gray-200 text-center w-12 sticky left-0 bg-blue-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">No</th>
+                <th className="p-3 border-r border-gray-200 text-left min-w-[200px] sticky left-12 bg-blue-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Nama Guru</th>
                 <th className="p-3 border-r border-gray-200 text-left min-w-[150px] whitespace-nowrap">NIP</th>
                 <th className="p-3 border-r border-gray-200 text-left min-w-[200px] whitespace-nowrap">Mata Pelajaran</th>
-                <th className="p-3 border-r border-gray-200 text-center min-w-[100px] whitespace-nowrap bg-blue-50/50 text-blue-700">Wali Kelas</th>
+                <th className="p-3 border-r border-gray-200 text-center min-w-[100px] whitespace-nowrap bg-blue-100/50 text-blue-700">Wali Kelas</th>
                 {classColumns.map(cls => (
                   <th key={cls} className="p-2 border-r border-gray-200 text-center w-12 min-w-[3rem] text-[10px]">
                     {cls}
                   </th>
                 ))}
-                <th className="p-3 text-center min-w-[100px] sticky right-0 bg-gray-50 z-20 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">Aksi</th>
+                <th className="p-3 text-center min-w-[100px] sticky right-0 bg-blue-50 z-20 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">

@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Student, Teacher, AppSettings, ChapterKey, FormativeKey, GradingSession, SemesterData } from '../types';
 import { calculateChapterAverage, createEmptySemesterData } from '../utils';
-import { ChevronDown, Search, User, FileText, AlertCircle, Download, FileStack, Loader2 } from 'lucide-react';
+import { ChevronDown, Search, User, FileText, AlertCircle, Download, FileStack, Loader2, RefreshCw, Printer, List, CheckCircle, AlertTriangle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -11,17 +11,27 @@ interface MidSemesterReportViewProps {
   teachers: Teacher[];
   settings: AppSettings;
   assessmentHistory?: GradingSession[]; 
+  allowDownload?: boolean; 
 }
 
-const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students, teachers, settings, assessmentHistory = [] }) => {
+const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ 
+    students, 
+    teachers, 
+    settings, 
+    assessmentHistory = [],
+    allowDownload = true 
+}) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'rapor' | 'tanggungan'>('rapor'); 
+  // Combined mode 'masalah' instead of separate 'tanggungan'/'remidi'
+  const [viewMode, setViewMode] = useState<'rapor' | 'masalah'>('rapor'); 
 
-  // Standard Subject Order
+  // Select active semester P5 projects
+  const activeP5Projects = settings.kokurikulerProjects[settings.activeSemester] || [];
+
+  // Subject Order
   const SUBJECT_ORDER = [
     "Pendidikan Agama Islam",
     "PPKn",
@@ -41,61 +51,54 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
     return index === -1 ? 999 : index; 
   };
 
-  const uniqueClasses = useMemo(() => {
-    return Array.from(new Set(students.map(s => s.kelas))).sort();
-  }, [students]);
+  const uniqueClasses = useMemo(() => Array.from(new Set(students.map(s => s.kelas))).sort(), [students]);
+  const classStudents = useMemo(() => students.filter(s => s.kelas === selectedClass).sort((a, b) => a.name.localeCompare(b.name)), [students, selectedClass]);
+  const selectedStudent = useMemo(() => students.find(s => s.id.toString() === selectedStudentId), [students, selectedStudentId]);
 
-  const classStudents = useMemo(() => {
-    return students.filter(s => s.kelas === selectedClass).sort((a, b) => a.name.localeCompare(b.name));
-  }, [students, selectedClass]);
-
-  const selectedStudent = useMemo(() => {
-    return students.find(s => s.id.toString() === selectedStudentId);
-  }, [students, selectedStudentId]);
-
+  // Auto-select logic
   useEffect(() => {
       if (students.length === 1) {
           const s = students[0];
           setSelectedClass(s.kelas);
           setSelectedStudentId(s.id.toString());
+      } else if (!selectedClass && uniqueClasses.length > 0) {
+          const firstClass = uniqueClasses[0];
+          setSelectedClass(firstClass);
+          const studentsInFirstClass = students.filter(s => s.kelas === firstClass).sort((a, b) => a.name.localeCompare(b.name));
+          if (studentsInFirstClass.length > 0) setSelectedStudentId(studentsInFirstClass[0].id.toString());
       }
-  }, [students]);
-
-  const waliKelasInfo = useMemo(() => {
-      if (settings.waliKelasMap && settings.waliKelasMap[selectedClass]) {
-          return settings.waliKelasMap[selectedClass];
+  }, [students, uniqueClasses, selectedClass]); 
+  
+  useEffect(() => {
+      if (selectedClass && classStudents.length > 0 && !classStudents.find(s => s.id.toString() === selectedStudentId)) {
+          setSelectedStudentId(classStudents[0].id.toString());
       }
-      return { name: '..................................', nip: '..................................' };
-  }, [settings.waliKelasMap, selectedClass]);
+  }, [selectedClass, classStudents]);
 
-  const attendanceData = useMemo(() => {
-      if (!selectedStudent || !selectedStudent.attendance) return { s: 0, i: 0, a: 0 };
-      return selectedStudent.attendance[settings.activeSemester] || { s: 0, i: 0, a: 0 };
-  }, [selectedStudent, settings.activeSemester]);
+  const waliKelasInfo = useMemo(() => settings.waliKelasMap?.[selectedClass] || { name: '..................................', nip: '..................................' }, [settings.waliKelasMap, selectedClass]);
+  const attendanceData = useMemo(() => selectedStudent?.attendance?.[settings.activeSemester] || { s: 0, i: 0, a: 0 }, [selectedStudent, settings.activeSemester]);
+  const extraData = useMemo(() => selectedStudent?.extracurricularRecord?.[settings.activeSemester] || [], [selectedStudent, settings.activeSemester]);
 
-  const extraData = useMemo(() => {
-      if (!selectedStudent || !selectedStudent.extracurricularRecord) return [];
-      return selectedStudent.extracurricularRecord[settings.activeSemester] || [];
-  }, [selectedStudent, settings.activeSemester]);
-
-  // --- Helper Functions for Data Calculation (Reused for Display & PDF) ---
-
+  // --- Data Calculations ---
+  
   const getChapterConfig = () => {
       const activeChaps: ChapterKey[] = [];
       const colMap: Record<ChapterKey, FormativeKey[]> = { bab1:[], bab2:[], bab3:[], bab4:[], bab5:[] };
-      const config = settings.midSemesterFieldConfig || {};
+      
+      const fieldConfig = settings.midSemesterFieldConfig || {};
+      const visibleChapters = settings.visibleChapters || { bab1: true, bab2: true, bab3: true, bab4: true, bab5: true };
       
       (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(chap => {
-          if (config[chap]) {
-              const activeFields = Object.entries(config[chap])
+          // Only include if Visible AND has fields configured
+          if (visibleChapters[chap] && fieldConfig[chap]) {
+              const activeFields = Object.entries(fieldConfig[chap])
                   .filter(([_, isActive]) => isActive)
                   .map(([field]) => field as FormativeKey)
                   .sort((a, b) => {
-                      if (a === 'sum') return 1;
-                      if (b === 'sum') return -1;
-                      return a.localeCompare(b);
+                      // Ensure sum is last
+                      if (a === 'sum') return 1; if (b === 'sum') return -1; return a.localeCompare(b);
                   });
-
+              
               if (activeFields.length > 0) {
                   activeChaps.push(chap);
                   colMap[chap] = activeFields;
@@ -103,1102 +106,739 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({ students,
           }
       });
       
-      if (activeChaps.length === 0) {
-          return { activeChaps: ['bab1','bab2','bab3'] as ChapterKey[], colMap: {
-              bab1: ['f1','f2','sum'] as FormativeKey[], 
-              bab2: ['f1','sum'] as FormativeKey[], 
-              bab3: ['f1'] as FormativeKey[],
-              bab4: [], bab5: []
-          }};
-      }
       return { activeChaps, colMap };
   };
 
-  const chapterConfig = useMemo(() => getChapterConfig(), [settings.midSemesterFieldConfig]);
+  const chapterConfig = useMemo(() => getChapterConfig(), [settings.midSemesterFieldConfig, settings.visibleChapters]);
 
   const calculateStudentSubjectsData = (student: Student, targetClass: string) => {
     const classSubjects = new Set<string>();
-    teachers.forEach(t => {
-        if (t.classes.includes(targetClass)) {
-            classSubjects.add(t.subject);
-        }
-    });
+    teachers.forEach(t => { if (t.classes.includes(targetClass)) classSubjects.add(t.subject); });
     classSubjects.add('Pendidikan Agama Islam');
-
-    const sortedSubjects = Array.from(classSubjects)
-        .filter(s => s !== 'Bimbingan Konseling') 
-        .sort((a, b) => getSubjectSortIndex(a) - getSubjectSortIndex(b));
-
+    const sortedSubjects = Array.from(classSubjects).filter(s => s !== 'Bimbingan Konseling').sort((a, b) => getSubjectSortIndex(a) - getSubjectSortIndex(b));
     const config = getChapterConfig();
 
     return sortedSubjects.map(subject => {
-      let grades;
-      if (subject === 'Pendidikan Agama Islam') {
-        grades = student.grades[settings.activeSemester];
-      } else {
-        grades = student.gradesBySubject?.[subject]?.[settings.activeSemester] || createEmptySemesterData();
-      }
-
+      let grades = subject === 'Pendidikan Agama Islam' ? student.grades[settings.activeSemester] : (student.gradesBySubject?.[subject]?.[settings.activeSemester] || createEmptySemesterData());
       const chapterScores: Record<string, string> = {}; 
-      let totalScore = 0;
-      let count = 0;
+      let totalScore = 0; let count = 0;
 
       config.activeChaps.forEach(chap => {
         const chapGrades = grades[chap];
-        const fieldsToShow = config.colMap[chap] || [];
-        fieldsToShow.forEach(f => {
-            chapterScores[`${chap}_${f}`] = chapGrades[f] !== null ? chapGrades[f]!.toString() : '-';
-        });
-        const allFields: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
-        const activeFieldsForCalc = allFields.filter(f => chapGrades[f] !== null);
-        const avg = calculateChapterAverage(chapGrades, activeFieldsForCalc);
-        if (avg !== null) {
-          totalScore += avg;
-          count++;
-        }
+        config.colMap[chap].forEach(f => { chapterScores[`${chap}_${f}`] = chapGrades[f] !== null ? chapGrades[f]!.toString() : '-'; });
+        const avg = calculateChapterAverage(chapGrades, ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'].filter(f => chapGrades[f as FormativeKey] !== null) as FormativeKey[]);
+        if (avg !== null) { totalScore += avg; count++; }
       });
 
-      if (grades.kts !== null) {
-          totalScore += grades.kts;
-          count++;
-      }
-
+      if (grades.kts !== null) { totalScore += grades.kts; count++; }
       const finalAvg = count > 0 ? Math.round(totalScore / count) : null;
-
-      return {
-        subject,
-        chapterScores,
-        kts: grades.kts,
-        finalAvg,
-      };
+      return { subject, chapterScores, kts: grades.kts, finalAvg };
     });
   };
 
-  const calculateStudentIssues = (student: Student, targetClass: string) => {
-    const tanggungan: { subject: string, task: string, score: number, date: string, description: string }[] = [];
-    const remidi: { subject: string, task: string, score: number, date: string, description: string }[] = [];
+  const subjectsData = useMemo(() => selectedStudent && selectedClass ? calculateStudentSubjectsData(selectedStudent, selectedClass) : [], [selectedStudent, selectedClass, teachers, settings.activeSemester, chapterConfig]);
 
-    const classSubjects = new Set<string>();
-    teachers.forEach(t => {
-        if (t.classes.includes(targetClass)) classSubjects.add(t.subject);
-    });
-    classSubjects.add('Pendidikan Agama Islam'); 
+  // --- Monitoring Calculation (Detailed for Report) ---
+  const getAllProblematicGrades = (student: Student) => {
+      const relevantHistory = assessmentHistory.filter(h => 
+          h.targetClass === student.kelas && h.semester === settings.activeSemester
+      );
 
-    const sortedSubjects = Array.from(classSubjects)
-        .filter(s => s !== 'Bimbingan Konseling') 
-        .sort((a, b) => getSubjectSortIndex(a) - getSubjectSortIndex(b));
+      const problems: any[] = [];
 
-    // Helper to find session details
-    const findSession = (subject: string, type: 'bab'|'kts'|'sas', chap?: ChapterKey, field?: FormativeKey) => {
-        return assessmentHistory.find(h => 
-            h.targetClass === targetClass && 
-            h.semester === settings.activeSemester &&
-            (h.targetSubject === subject || (!h.targetSubject && subject === 'Pendidikan Agama Islam')) &&
-            h.type === type &&
-            (chap ? h.chapterKey === chap : true) &&
-            (field ? h.formativeKey === field : true)
-        );
-    };
+      relevantHistory.forEach(session => {
+          const subject = session.targetSubject || 'Pendidikan Agama Islam';
+          let grade = null;
+          
+          const grades = subject === 'Pendidikan Agama Islam' 
+              ? student.grades[settings.activeSemester] 
+              : student.gradesBySubject?.[subject]?.[settings.activeSemester];
 
-    sortedSubjects.forEach(subject => {
-        let grades: SemesterData;
-        if (subject === 'Pendidikan Agama Islam') {
-            grades = student.grades[settings.activeSemester];
-        } else {
-            grades = student.gradesBySubject?.[subject]?.[settings.activeSemester] || createEmptySemesterData();
-        }
+          if (!grades) return;
 
-        const allChapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
-        const fields: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
+          if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
+              grade = grades[session.chapterKey][session.formativeKey];
+          } else if (session.type === 'kts') {
+              grade = grades.kts;
+          } else if (session.type === 'sas') {
+              grade = grades.sas;
+          } else if (session.type === 'up') {
+              grade = grades.nilaiUp;
+          }
 
-        allChapters.forEach(chap => {
-             const chapGrades = grades[chap];
-             fields.forEach(f => {
-                 const score = chapGrades[f];
-                 
-                 // Check logic
-                 let issueType: 'tanggungan' | 'remidi' | null = null;
-                 if (score === 0) issueType = 'tanggungan';
-                 else if (score !== null && score < 70) issueType = 'remidi';
+          // Conditions
+          const isTanggungan = (grade === 0);
+          const isRemidi = (grade !== null && grade > 0 && grade < 75);
 
-                 if (issueType) {
-                     const displayBab = parseInt(chap.replace('bab',''));
-                     const taskName = `TP ${displayBab} - ${f === 'sum' ? 'SUM' : f.toUpperCase()}`;
-                     
-                     // Get Meta
-                     const session = findSession(subject, 'bab', chap, f);
-                     const date = session?.date || '-';
-                     const description = session?.description || '-';
-
-                     const item = { subject, task: taskName, score: score!, date, description };
-                     if (issueType === 'tanggungan') tanggungan.push(item);
-                     else remidi.push(item);
-                 }
-             });
-        });
-
-        // KTS
-        if (grades.kts === 0 || (grades.kts !== null && grades.kts < 70)) {
-            const session = findSession(subject, 'kts');
-            const item = { 
-                subject, 
-                task: 'KTS', 
-                score: grades.kts!, 
-                date: session?.date || '-', 
-                description: session?.description || '-' 
-            };
-            if (grades.kts === 0) tanggungan.push(item);
-            else remidi.push(item);
-        }
-
-        // SAS
-        if (grades.sas === 0 || (grades.sas !== null && grades.sas < 70)) {
-            const session = findSession(subject, 'sas');
-            const item = { 
-                subject, 
-                task: 'SAS', 
-                score: grades.sas!, 
-                date: session?.date || '-', 
-                description: session?.description || '-' 
-            };
-            if (grades.sas === 0) tanggungan.push(item);
-            else remidi.push(item);
-        }
-    });
-
-    return { tanggungan, remidi };
+          if (isTanggungan || isRemidi) {
+               let taskName = session.type.toUpperCase();
+               if (session.type === 'bab' && session.chapterKey) {
+                   const num = session.chapterKey.replace('bab','');
+                   const field = session.formativeKey === 'sum' ? 'Sumatif' : session.formativeKey?.toUpperCase();
+                   taskName = `TP ${num} (${field})`;
+               }
+               
+               problems.push({
+                   subject,
+                   taskName,
+                   date: session.date,
+                   score: grade,
+                   description: session.description || '-',
+                   type: isTanggungan ? 'TANGGUNGAN' : 'REMIDI'
+               });
+          }
+      });
+      
+      // Sort by Subject then Date
+      return problems.sort((a,b) => {
+          const subDiff = getSubjectSortIndex(a.subject) - getSubjectSortIndex(b.subject);
+          if (subDiff !== 0) return subDiff;
+          return a.date.localeCompare(b.date);
+      });
   };
 
-  // Memoized data for current view
-  const subjectsData = useMemo(() => {
-      if (!selectedStudent || !selectedClass) return [];
-      return calculateStudentSubjectsData(selectedStudent, selectedClass);
-  }, [selectedStudent, selectedClass, teachers, settings.activeSemester, chapterConfig]);
+  const allProblems = useMemo(() => selectedStudent ? getAllProblematicGrades(selectedStudent) : [], [selectedStudent, assessmentHistory]);
 
-  const studentIssues = useMemo(() => {
-      if (!selectedStudent || !selectedClass) return { tanggungan: [], remidi: [] };
-      return calculateStudentIssues(selectedStudent, selectedClass);
-  }, [selectedStudent, selectedClass, teachers, settings.activeSemester, assessmentHistory]);
-
-
-  // --- PDF GENERATION LOGIC ---
-
+  // --- PDF GENERATION (Combined) ---
   const handleDownloadPDF = async (mode: 'single' | 'class') => {
     if (!selectedClass) return;
-    
     setIsGenerating(true);
-    // Allow UI to update before heavy processing
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(r => setTimeout(r, 100));
 
-    // Calculate watermark dimensions respecting aspect ratio
-    let wmWidth = 150;
-    let wmHeight = 150;
+    const targets = mode === 'single' ? (selectedStudent ? [selectedStudent] : []) : classStudents;
+    
+    // F4 Size (Folio) - 215.9 x 330.2 mm
+    const PAGE_WIDTH = 215.9;
+    const PAGE_HEIGHT = 330.2;
+    const MARGIN = 15;
+    const PRINT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
+    
+    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: [PAGE_WIDTH, PAGE_HEIGHT] });
+
+    // Pre-calculate watermark ratio
+    let wmWidth = 100;
+    let wmHeight = 100;
+
     if (settings.watermarkLogoUrl) {
         try {
             const img = new Image();
             img.src = settings.watermarkLogoUrl;
-            // Wait for image to load to get dimensions
             await new Promise((resolve) => {
                 if (img.complete) resolve(true);
                 img.onload = () => resolve(true);
                 img.onerror = () => resolve(false);
             });
             
-            if (img.width > 0 && img.height > 0) {
-                const ratio = img.width / img.height;
-                const maxSize = 150; // Max width or height in mm
+            if (img.naturalWidth && img.naturalHeight) {
+                const ratio = img.naturalWidth / img.naturalHeight;
+                // Maximum dimension box 120mm
+                const maxSize = 120;
                 
-                if (ratio > 1) {
-                    // Wider than tall
+                if (ratio > 1) { // Landscape
                     wmWidth = maxSize;
                     wmHeight = maxSize / ratio;
-                } else {
-                    // Taller than wide or square
+                } else { // Portrait or Square
                     wmHeight = maxSize;
                     wmWidth = maxSize * ratio;
                 }
             }
         } catch (e) {
-            console.error("Error loading watermark dimensions", e);
+            console.warn("Could not calculate watermark ratio", e);
         }
     }
 
-    const targets = mode === 'single' 
-        ? (selectedStudent ? [selectedStudent] : []) 
-        : classStudents;
-
-    if (targets.length === 0) {
-        setIsGenerating(false);
-        return;
-    }
-
-    const dateStr = settings.midSemesterDate || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-    const config = getChapterConfig();
-
-    const doc = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: [215.9, 330.2] // F4
-    });
+    // HELPER: Draw Watermark with correct ratio
+    const drawWatermark = () => {
+        if (settings.watermarkLogoUrl) {
+            try {
+                doc.saveGraphicsState();
+                doc.setGState(new (doc as any).GState({ opacity: 0.1 }));
+                // Center watermark
+                doc.addImage(settings.watermarkLogoUrl, 'PNG', (PAGE_WIDTH - wmWidth) / 2, (PAGE_HEIGHT - wmHeight) / 2, wmWidth, wmHeight);
+                doc.restoreGraphicsState();
+            } catch(e) { console.warn("Watermark error:", e); }
+        }
+    };
 
     for (let i = 0; i < targets.length; i++) {
         const student = targets[i];
         
-        // Recalculate data for specific student in loop
-        const dataSubjects = calculateStudentSubjectsData(student, selectedClass);
-        const dataIssues = calculateStudentIssues(student, selectedClass);
-        const dataAttendance = student.attendance?.[settings.activeSemester] || { s: 0, i: 0, a: 0 };
-        const dataExtra = student.extracurricularRecord?.[settings.activeSemester] || [];
+        if (i > 0) doc.addPage();
 
-        // Determine Wali Kelas for this class
-        const wk = settings.waliKelasMap?.[selectedClass] || { name: '..................................', nip: '..................................' };
+        // === PAGE 1: RAPOR SISIPAN ===
+        drawWatermark(); // PAGE 1 WATERMARK
 
-        // --- PAGE 1 START ---
-        if (i > 0) doc.addPage(); // Add page for next student
+        // --- HEADER (KOP) ---
+        let y = 15; 
+        const headerX = PAGE_WIDTH / 2;
+        
+        if (settings.kabupatenLogoUrl) { 
+            try { 
+                doc.addImage(settings.kabupatenLogoUrl, 'PNG', MARGIN, y, 22, 28); 
+            } catch(e){} 
+        }
+        
+        const headerLines = settings.schoolHeader && settings.schoolHeader.length > 0 
+            ? settings.schoolHeader 
+            : ["PEMERINTAH KABUPATEN MOJOKERTO", "DINAS PENDIDIKAN", "SMPN 3 PACET", "Jl. Tirta Wening, Kab. Mojokerto, Jawa Timur 61374", "Email: smpn3pacet2007@gmail.com, HP. 0815 5386 0273", "Laman: https://sekolah.mojokertokab.go.id/smpn3pacet"];
 
-        // Helper for KOP
-        const addKop = (yStart: number) => {
-            if (settings.kabupatenLogoUrl) {
-                try {
-                    doc.addImage(settings.kabupatenLogoUrl, 'PNG', 15, yStart, 20, 25);
-                } catch (e) { /* ignore image error */ }
-            }
-            
-            doc.setFont("times", "bold");
-            doc.setFontSize(12);
-            let textY = yStart + 5;
-            const headerLines = settings.schoolHeader || ["PEMERINTAH KABUPATEN MOJOKERTO", "DINAS PENDIDIKAN", "SMPN 3 PACET"];
-            
-            headerLines.forEach((line, idx) => {
-                if (idx >= 3) {
-                    doc.setFont("times", "normal");
-                    doc.setFontSize(9);
-                } else if (idx === 2) {
-                    doc.setFontSize(14);
-                }
-                doc.text(line, 108, textY, { align: 'center' });
-                textY += 5;
-            });
+        doc.setFont("times", "bold"); doc.setFontSize(14);
+        doc.text(headerLines[0] || "", headerX, y + 6, { align: 'center' });
+        doc.text(headerLines[1] || "", headerX, y + 12, { align: 'center' });
+        doc.setFontSize(18);
+        doc.text(headerLines[2] || "", headerX, y + 20, { align: 'center' });
+        doc.setFont("times", "normal"); doc.setFontSize(9);
+        doc.text(headerLines[3] || "", headerX, y + 26, { align: 'center' });
+        doc.text((headerLines[4] || "") + " " + (headerLines[5] || ""), headerX, y + 30, { align: 'center' });
+        
+        y += 35;
+        doc.setLineWidth(0.5); doc.line(MARGIN, y, PAGE_WIDTH - MARGIN, y); 
+        doc.setLineWidth(0.2); doc.line(MARGIN, y+1, PAGE_WIDTH - MARGIN, y+1);
+        y += 8;
 
-            doc.setLineWidth(0.5);
-            doc.line(10, textY + 2, 205, textY + 2);
-            doc.setLineWidth(0.2);
-            doc.line(10, textY + 3, 205, textY + 3);
-            return textY + 8; // Reduce buffer
-        };
-
-        const addStudentHeader = (yStart: number) => {
-            doc.setFont("times", "normal");
-            doc.setFontSize(9); // Smaller font
-            const leftX = 15;
-            const rightX = 140;
-            const lineHeight = 4.5;
-
-            doc.text(`Nama Siswa`, leftX, yStart);
-            doc.text(`:  ${student.name}`, leftX + 25, yStart);
-            doc.text(`Kelas`, rightX, yStart);
-            doc.text(`:  ${student.kelas}`, rightX + 15, yStart);
-
-            doc.text(`NIS / NISN`, leftX, yStart + lineHeight);
-            doc.text(`:  ${student.nis} / ${student.nisn || '-'}`, leftX + 25, yStart + lineHeight);
-            doc.text(`Fase`, rightX, yStart + lineHeight);
-            doc.text(`:  D`, rightX + 15, yStart + lineHeight);
-
-            return yStart + lineHeight * 2 + 4;
-        };
-
-        let y = 10;
-        y = addKop(y);
-
-        doc.setFont("times", "bold");
-        doc.setFontSize(12);
-        doc.text("LAPORAN HASIL BELAJAR SISWA", 108, y, { align: "center" });
-        doc.setFontSize(10);
-        doc.text(`TENGAH SEMESTER ${settings.activeSemester === 'ganjil' ? 'GANJIL' : 'GENAP'} TAHUN PELAJARAN ${settings.academicYear}`, 108, y + 5, { align: "center" });
+        // --- TITLE ---
+        doc.setFont("times", "bold"); doc.setFontSize(12);
+        doc.text("LAPORAN HASIL BELAJAR SISWA (SISIPAN)", headerX, y, { align: "center" });
+        doc.text(`TENGAH SEMESTER ${settings.activeSemester.toUpperCase()} TAHUN PELAJARAN ${settings.academicYear}`, headerX, y + 5, { align: "center" });
         y += 12;
 
-        y = addStudentHeader(y);
+        // --- STUDENT INFO ---
+        doc.setFont("times", "normal"); doc.setFontSize(10);
+        const col1X = MARGIN; 
+        const col1ValX = MARGIN + 28;
+        const col2X = headerX + 20;
+        const col2ValX = headerX + 40;
 
-        // A. Nilai Akademik
-        doc.setFont("times", "bold");
-        doc.setFontSize(10);
-        doc.text("A. Nilai Akademik", 15, y - 2);
+        doc.text(`Nama Siswa`, col1X, y); doc.text(`: ${student.name}`, col1ValX, y);
+        doc.text(`Kelas`, col2X, y); doc.text(`: ${student.kelas}`, col2ValX, y);
+        
+        y+=5;
+        doc.text(`NIS / NISN`, col1X, y); doc.text(`: ${student.nis} / ${student.nisn||'-'}`, col1ValX, y);
+        doc.text(`Fase`, col2X, y); doc.text(`: D`, col2ValX, y);
+        y += 10;
 
-        const head: any[][] = [];
-        const colSpans: any[] = [{ content: 'No', rowSpan: 2 }, { content: 'Mata Pelajaran', rowSpan: 2 }];
+        // --- DATA CONTENT ---
+        const dataSubjects = calculateStudentSubjectsData(student, selectedClass);
+        const dataExtra = student.extracurricularRecord?.[settings.activeSemester] || [];
+        const attendance = student.attendance?.[settings.activeSemester] || {s:0,i:0,a:0};
+
+        // TABLE A: AKADEMIK
+        doc.setFont("times", "bold"); doc.text("A. Nilai Akademik", MARGIN, y);
+        y += 2;
+        
+        const head: any[][] = [[
+            { content: 'No', rowSpan: 2 }, 
+            { content: 'Mata Pelajaran', rowSpan: 2 },
+            ...chapterConfig.activeChaps.map(c => ({ content: c.replace('bab','TP '), colSpan: chapterConfig.colMap[c].length, styles: {halign: 'center'} })),
+            { content: 'KTS', rowSpan: 2 }, { content: 'Rerata', rowSpan: 2 }
+        ]];
         const subHeaders: any[] = [];
-
-        config.activeChaps.forEach(chap => {
-            colSpans.push({ content: chap.replace('bab', 'TP '), colSpan: config.colMap[chap].length, styles: { halign: 'center' } });
-            config.colMap[chap].forEach(f => {
-                const chapNum = chap.replace('bab','');
-                subHeaders.push({ content: f === 'sum' ? `Sum ${chapNum}` : f.toUpperCase(), styles: { halign: 'center', fontSize: 7 } });
-            });
-        });
-        colSpans.push({ content: 'KTS', rowSpan: 2 });
-        colSpans.push({ content: 'Rerata', rowSpan: 2 });
-
-        head.push(colSpans);
+        chapterConfig.activeChaps.forEach(c => chapterConfig.colMap[c].forEach(f => subHeaders.push({ content: f==='sum'?'Sum':f.toUpperCase(), styles: {halign: 'center', fontSize: 8} })));
         head.push(subHeaders);
 
-        const body = dataSubjects.map((subj, i) => {
-            const row: any[] = [i + 1, subj.subject];
-            config.activeChaps.forEach(chap => {
-                config.colMap[chap].forEach(f => {
-                    row.push(subj.chapterScores[`${chap}_${f}`] || '-');
-                });
-            });
-            row.push(subj.kts ?? '-');
-            row.push(subj.finalAvg ?? '-');
-            return row;
-        });
-
-        // Compact Table for Single Page Fit
-        autoTable(doc, {
-            startY: y,
-            head: head,
-            body: body,
-            theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', valign: 'middle' },
-            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 1: { halign: 'left' } },
-            didParseCell: (data) => {
-                if (data.section === 'body' && data.column.index > 1) {
-                    data.cell.styles.halign = 'center';
-                }
-            }
-        });
-
-        y = (doc as any).lastAutoTable.finalY + 4; // Compact spacing
-
-        // B. Kokurikuler
-        doc.setFontSize(9);
-        doc.setFont("times", "bold");
-        doc.text("B. Kokurikuler", 15, y);
-        const kokuBody = (settings.kokurikulerProjects || []).map((p, i) => [i + 1, p.theme, p.description]);
-        if (kokuBody.length === 0) kokuBody.push(['-', '-', '-']);
+        const body = dataSubjects.map((s, idx) => [
+            idx+1, s.subject, 
+            ...chapterConfig.activeChaps.flatMap(c => chapterConfig.colMap[c].map(f => s.chapterScores[`${c}_${f}`]||'-')),
+            s.kts||'-', s.finalAvg||'-'
+        ]);
 
         autoTable(doc, {
-            startY: y + 2,
-            head: [['No', 'Tema', 'Deskripsi']],
-            body: kokuBody,
-            theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 1: { cellWidth: 50 } }
+            startY: y, head, body, theme: 'grid',
+            styles: { 
+                font: "times", 
+                fontSize: 9, 
+                cellPadding: 1, 
+                lineColor: 0, 
+                lineWidth: 0.1, 
+                overflow: 'linebreak',
+                fillColor: false as any // Make cells transparent so watermark shows
+            },
+            headStyles: { fillColor: [230, 230, 230], textColor: 0, fontStyle: 'bold', valign: 'middle' },
+            columnStyles: { 0: {halign:'center', cellWidth: 8} },
+            margin: { left: MARGIN, right: MARGIN },
+            tableWidth: PRINT_WIDTH
         });
+        y = (doc as any).lastAutoTable.finalY + 5;
 
-        y = (doc as any).lastAutoTable.finalY + 4;
+        // TABLE B: KOKURIKULER
+        doc.setFont("times", "bold"); doc.text("B. Projek Penguatan Profil Pelajar Pancasila (Kokurikuler)", MARGIN, y);
+        y += 2;
+        const p5Body = activeP5Projects.map((p, idx) => [idx + 1, p.theme, p.description]);
+        if (p5Body.length === 0) p5Body.push(['-', '-', '-']);
+        autoTable(doc, {
+            startY: y, head: [['No', 'Tema', 'Uraian Kegiatan']], body: p5Body, theme: 'grid',
+            styles: { font: "times", fontSize: 9, cellPadding: 1.5, lineColor: 0, lineWidth: 0.1, fillColor: false as any },
+            headStyles: { fillColor: [230, 230, 230], textColor: 0, fontStyle: 'bold', valign: 'middle', halign: 'center' },
+            columnStyles: { 0: {halign: 'center', cellWidth: 8}, 1: {cellWidth: 50} },
+            margin: { left: MARGIN, right: MARGIN },
+            tableWidth: PRINT_WIDTH
+        });
+        y = (doc as any).lastAutoTable.finalY + 5;
 
-        // C. Ekstrakurikuler
-        doc.setFontSize(9);
-        doc.setFont("times", "bold");
-        doc.text("C. Ekstrakurikuler", 15, y);
-        const extraBody = dataExtra.map((e, i) => [i + 1, e.activityName, e.predikat, e.description]);
+        // TABLE C: EKSTRA
+        doc.setFont("times", "bold"); doc.text("C. Ekstrakurikuler", MARGIN, y);
+        y += 2;
+        const extraBody = (dataExtra || []).map((e, idx) => [idx + 1, e.activityName, e.predikat, e.description]);
         if (extraBody.length === 0) extraBody.push(['-', '-', '-', '-']);
-
         autoTable(doc, {
-            startY: y + 2,
-            head: [['No', 'Kegiatan', 'Predikat', 'Keterangan']],
-            body: extraBody,
-            theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 2: { halign: 'center' } }
+            startY: y, head: [['No', 'Nama Kegiatan', 'Predikat', 'Keterangan']], body: extraBody, theme: 'grid',
+            styles: { font: "times", fontSize: 9, cellPadding: 1.5, lineColor: 0, lineWidth: 0.1, fillColor: false as any },
+            headStyles: { fillColor: [230, 230, 230], textColor: 0, fontStyle: 'bold', valign: 'middle', halign: 'center' },
+            columnStyles: { 0: {halign: 'center', cellWidth: 8}, 2: {halign: 'center', cellWidth: 20} },
+            margin: { left: MARGIN, right: MARGIN },
+            tableWidth: PRINT_WIDTH
         });
+        y = (doc as any).lastAutoTable.finalY + 5;
 
-        y = (doc as any).lastAutoTable.finalY + 4;
-
-        // D & E (Side by Side)
+        // TABLE D & E (SIDE BY SIDE PROPORTIONAL)
         const startY_DE = y;
-        doc.setFontSize(9);
-        doc.setFont("times", "bold");
-        doc.text("D. Akhlak & Kepribadian", 15, y);
-
+        
+        // Table D (Absensi) - Width approx 80mm
+        doc.setFont("times", "bold"); doc.text("D. Ketidakhadiran", MARGIN, y);
+        const attendanceBody = [['Sakit', `${attendance.s} hari`], ['Izin', `${attendance.i} hari`], ['Tanpa Keterangan', `${attendance.a} hari`]];
+        
         autoTable(doc, {
-            startY: y + 2,
-            head: [['No', 'Aspek', 'Predikat', 'Keterangan']],
-            body: [['1', 'Akhlak', 'A', 'Sangat Baik'], ['2', 'Kepribadian', 'A', 'Sangat Baik']],
-            theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 2: { halign: 'center' } },
-            margin: { right: 115 },
+            startY: y + 2, body: attendanceBody, theme: 'grid',
+            styles: { font: "times", fontSize: 9, cellPadding: 1.5, lineColor: 0, lineWidth: 0.1, fillColor: false as any },
+            columnStyles: { 0: {cellWidth: 40}, 1: {cellWidth: 30, halign: 'center'} },
+            margin: { left: MARGIN },
+            tableWidth: 70
         });
         const finalY_D = (doc as any).lastAutoTable.finalY;
 
-        doc.text("E. Ketidakhadiran", 115, startY_DE);
+        // Table E (Kepribadian) - Align right side, Start same Y as title D
+        const tableE_X = MARGIN + 80; 
+        doc.text("E. Kepribadian & Akhlak", tableE_X, startY_DE);
+        const kepribadianBody = [['1', 'Kelakuan / Akhlak', 'Baik'], ['2', 'Kerajinan', 'Baik'], ['3', 'Kerapian', 'Baik']];
+        
         autoTable(doc, {
-            startY: startY_DE + 2,
-            head: [['No', 'Keterangan', 'Jumlah']],
-            body: [
-                ['1', 'Sakit', `${dataAttendance.s} Hari`],
-                ['2', 'Izin', `${dataAttendance.i} Hari`],
-                ['3', 'Tanpa Ket.', `${dataAttendance.a} Hari`]
-            ],
-            theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 0.7, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
-            columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 2: { halign: 'center' } },
-            margin: { left: 115 },
+            startY: startY_DE + 2, head: [['No', 'Aspek', 'Keterangan']], body: kepribadianBody, theme: 'grid',
+            styles: { font: "times", fontSize: 9, cellPadding: 1.5, lineColor: 0, lineWidth: 0.1, fillColor: false as any },
+            headStyles: { fillColor: [230, 230, 230], textColor: 0, fontStyle: 'bold', valign: 'middle', halign: 'center' },
+            columnStyles: { 0: {halign: 'center', cellWidth: 8}, 2: {halign: 'center'} },
+            margin: { left: tableE_X, right: MARGIN }
         });
-        const finalY_E = (doc as any).lastAutoTable.finalY;
         
-        y = Math.max(finalY_D, finalY_E) + 8;
+        // Update Y to the lowest point of either table + spacing
+        y = Math.max(finalY_D, (doc as any).lastAutoTable.finalY) + 15;
 
-        // --- SIGNATURES (SINGLE ROW) ---
-        // Layout: Left (KS), Center (Parent), Right (Wali)
+        // --- SIGNATURES (Page 1) ---
+        // Check if enough space for signatures (need approx 40mm)
+        // If y + 40 > PageHeight - Margin, add new page
+        if (y + 40 > PAGE_HEIGHT - MARGIN) { 
+            doc.addPage(); 
+            drawWatermark(); // Draw watermark on new page for signatures
+            y = 20; 
+        } 
         
-        // Ensure space for signatures
-        if (y > 290) { doc.addPage(); y = 20; }
+        const wk = settings.waliKelasMap?.[selectedClass] || { name: '...', nip: '...' };
+        
+        // Get date based on semester
+        const reportDate = settings.midSemesterDate[settings.activeSemester] || new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'});
+        
+        doc.setFontSize(10); doc.setFont("times", "normal");
+        
+        // Use relative positions for signatures based on Page Width
+        const sigY = y;
+        const sigLeftX = MARGIN + 20;
+        const sigRightX = PAGE_WIDTH - MARGIN - 40;
+        const sigCenterX = PAGE_WIDTH / 2;
 
+        // Top Signatures
+        doc.text("Mengetahui,", sigLeftX, sigY, { align: 'center' });
+        doc.text("Orang Tua / Wali", sigLeftX, sigY + 4, { align: 'center' });
+        
+        doc.text(`Mojokerto, ${reportDate}`, sigRightX, sigY, { align: 'center' });
+        doc.text("Wali Kelas", sigRightX, sigY + 4, { align: 'center' });
+
+        // Names
+        const nameY = sigY + 25;
+        doc.text("(....................................)", sigLeftX, nameY, { align: 'center' });
+        
+        doc.setFont("times", "bold");
+        doc.text(wk.name, sigRightX, nameY, { align: 'center' });
         doc.setFont("times", "normal");
-        doc.setFontSize(9);
+        doc.text(`NIP. ${wk.nip}`, sigRightX, nameY + 4, { align: 'center' });
 
-        const yName = y + 22;
-        const yNip = y + 26;
-
-        const xLeft = 40;   // Kepala Sekolah
-        const xCenter = 108; // Orang Tua
-        const xRight = 175;  // Wali Kelas
-
-        // 1. Wali Kelas (Right) with Date
-        doc.text(`Mojokerto, ${dateStr}`, xRight, y, { align: "center" });
-        doc.text("Wali Kelas", xRight, y + 4, { align: "center" });
-        doc.setFont("times", "bold underline");
-        doc.text(wk.name, xRight, yName, { align: "center" });
+        // Principal Signature
+        const principalY = nameY + 10;
+        doc.text("Mengetahui,", sigCenterX, principalY, { align: 'center' });
+        doc.text("Kepala SMPN 3 Pacet", sigCenterX, principalY + 4, { align: 'center' });
+        
+        const principalNameY = principalY + 25;
+        doc.setFont("times", "bold");
+        doc.text(settings.principalName, sigCenterX, principalNameY, { align: 'center' });
         doc.setFont("times", "normal");
-        doc.text(`NIP. ${wk.nip}`, xRight, yNip, { align: "center" });
+        doc.text(`NIP. ${settings.principalNip}`, sigCenterX, principalNameY + 4, { align: 'center' });
 
-        // 2. Orang Tua (Center)
-        doc.text("Mengetahui,", xCenter, y, { align: "center" }); // Align "Mengetahui" with "Mojokerto" line for symmetry
-        doc.text("Orang Tua / Wali Murid", xCenter, y + 4, { align: "center" });
-        doc.text("..........................................", xCenter, yName, { align: "center" });
-
-        // 3. Kepala Sekolah (Left)
-        doc.text("Mengetahui,", xLeft, y, { align: "center" });
-        doc.text("Kepala Sekolah", xLeft, y + 4, { align: "center" });
-        doc.setFont("times", "bold underline");
-        doc.text(settings.principalName, xLeft, yName, { align: "center" });
-        doc.setFont("times", "normal");
-        doc.text(`NIP. ${settings.principalNip}`, xLeft, yNip, { align: "center" });
-
-
-        // --- PAGE 2: MONITORING ---
+        // === PAGE 2: MASALAH AKADEMIK (ALWAYS ADDED) ===
         doc.addPage();
-        y = 10;
-        y = addKop(y);
-
-        doc.setFont("times", "bold");
-        doc.setFontSize(12);
-        doc.text("CATATAN AKADEMIK SISWA", 108, y, { align: "center" });
-        doc.text("DAFTAR TANGGUNGAN & REMIDI", 108, y + 6, { align: "center" });
-        y += 20;
-        y = addStudentHeader(y);
-
-        doc.setFont("times", "bold");
-        doc.text("I. Daftar Tanggungan (Nilai Kosong / 0)", 15, y);
         
-        // Expanded Table Data for PDF
-        const tanggunganBody = dataIssues.tanggungan.map((item, i) => [
-            i+1, 
-            item.subject,
-            item.date, 
-            item.task, 
-            item.description,
-            '0'
-        ]);
-        if (tanggunganBody.length === 0) tanggunganBody.push(['-', 'Tidak ada tanggungan', '-', '-', '-', '-']);
+        drawWatermark(); // PAGE 2 WATERMARK
+
+        const problems = getAllProblematicGrades(student);
+        y = 20;
+
+        doc.setFont("times", "bold"); doc.setFontSize(12);
+        doc.text("LAMPIRAN CATATAN AKADEMIK", headerX, y, { align: "center" });
+        y += 5;
+        doc.setFontSize(10);
+        doc.text(`${student.name} (${student.kelas})`, headerX, y, { align: "center" });
+        y += 10;
+
+        const problemBody = problems.length > 0 
+            ? problems.map((p, idx) => [
+                idx + 1,
+                p.subject,
+                p.taskName,
+                p.score,
+                p.type,
+                p.description
+              ])
+            : [['-', '-', '-', '-', '-', 'Tidak ada masalah akademik (Nilai Aman).']];
 
         autoTable(doc, {
-            startY: y + 2,
-            head: [['No', 'Mata Pelajaran', 'Tgl', 'Tagihan', 'Ket.', 'Nilai']],
-            body: tanggunganBody,
+            startY: y,
+            head: [['No', 'Mata Pelajaran', 'Tugas', 'Nilai', 'Status', 'Keterangan']],
+            body: problemBody,
             theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [255, 230, 230], textColor: [0, 0, 0] },
+            styles: { font: "times", fontSize: 9, cellPadding: 2, lineColor: 0, lineWidth: 0.1, fillColor: false as any },
+            headStyles: { fillColor: [200, 50, 50], textColor: 255, fontStyle: 'bold', valign: 'middle', halign: 'center' },
             columnStyles: { 
-                0: { cellWidth: 8, halign: 'center' }, 
-                2: { cellWidth: 20 },
-                3: { cellWidth: 25 },
-                5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }
+                0: {halign: 'center', cellWidth: 10}, 
+                3: {halign: 'center', fontStyle: 'bold'},
+                4: {halign: 'center', fontStyle: 'bold', textColor: [200, 0, 0]}
+            },
+            margin: { left: MARGIN, right: MARGIN },
+            tableWidth: PRINT_WIDTH,
+            didParseCell: (data) => {
+                if (data.section === 'body' && data.column.index === 4) {
+                    if (data.cell.raw === 'TANGGUNGAN') data.cell.styles.textColor = [220, 0, 0]; // Red
+                    if (data.cell.raw === 'REMIDI') data.cell.styles.textColor = [234, 88, 12]; // Orange
+                }
             }
         });
-        y = (doc as any).lastAutoTable.finalY + 10;
 
-        doc.setFont("times", "bold");
-        doc.text("II. Daftar Remidi (Nilai < 70)", 15, y);
+        // Simple signature on attachment page
+        y = (doc as any).lastAutoTable.finalY + 15;
         
-        const remidiBody = dataIssues.remidi.map((item, i) => [
-            i+1, 
-            item.subject,
-            item.date,
-            item.task,
-            item.description,
-            item.score
-        ]);
-        if (remidiBody.length === 0) remidiBody.push(['-', 'Tidak ada remidi', '-', '-', '-', '-']);
-
-        autoTable(doc, {
-            startY: y + 2,
-            head: [['No', 'Mata Pelajaran', 'Tgl', 'Tagihan', 'Ket.', 'Nilai']],
-            body: remidiBody,
-            theme: 'grid',
-            styles: { font: "times", fontSize: 8, cellPadding: 1, lineColor: [0, 0, 0], lineWidth: 0.1 },
-            headStyles: { fillColor: [255, 240, 220], textColor: [0, 0, 0] },
-            columnStyles: { 
-                0: { cellWidth: 8, halign: 'center' }, 
-                2: { cellWidth: 20 },
-                3: { cellWidth: 25 },
-                5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }
-            }
-        });
-        y = (doc as any).lastAutoTable.finalY + 10;
-        
-        doc.setFont("times", "italic");
-        doc.setFontSize(8);
-        doc.text("* Mohon segera menyelesaikan tanggungan dan remidi sebelum Penilaian Akhir Semester.", 15, y);
-
-        // Signatures Page 2 (Single Row)
-        y += 15;
-        doc.setFont("times", "normal");
-        doc.setFontSize(9);
-
-        const yName2 = y + 22;
-        const yNip2 = y + 26;
-
-        // 1. Wali Kelas (Right)
-        doc.text(`Mojokerto, ${dateStr}`, xRight, y, { align: "center" });
-        doc.text("Wali Kelas", xRight, y + 4, { align: "center" });
-        doc.setFont("times", "bold underline");
-        doc.text(wk.name, xRight, yName2, { align: "center" });
-        doc.setFont("times", "normal");
-        doc.text(`NIP. ${wk.nip}`, xRight, yNip2, { align: "center" });
-
-        // 2. Orang Tua (Center)
-        doc.text("Mengetahui,", xCenter, y, { align: "center" });
-        doc.text("Orang Tua / Wali Murid", xCenter, y + 4, { align: "center" });
-        doc.text("..........................................", xCenter, yName2, { align: "center" });
-
-        // 3. Kepala Sekolah (Left)
-        doc.text("Mengetahui,", xLeft, y, { align: "center" });
-        doc.text("Kepala Sekolah", xLeft, y + 4, { align: "center" });
-        doc.setFont("times", "bold underline");
-        doc.text(settings.principalName, xLeft, yName2, { align: "center" });
-        doc.setFont("times", "normal");
-        doc.text(`NIP. ${settings.principalNip}`, xLeft, yNip2, { align: "center" });
-    }
-
-    // DRAW WATERMARK AS OVERLAY ON ALL PAGES
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        if (settings.watermarkLogoUrl) {
-            try {
-                doc.saveGraphicsState();
-                doc.setGState(new doc.GState({ opacity: 0.1 }));
-                
-                const x = (215.9 - wmWidth) / 2;
-                const y = (330.2 - wmHeight) / 2;
-                
-                doc.addImage(settings.watermarkLogoUrl, 'PNG', x, y, wmWidth, wmHeight);
-                doc.restoreGraphicsState();
-            } catch (e) { /* ignore image error */ }
+        // Check page break for attachment signature
+        if (y + 30 > PAGE_HEIGHT - MARGIN) {
+            doc.addPage();
+            y = 20;
         }
+
+        doc.setFontSize(10); doc.setFont("times", "normal");
+        doc.text("Mengetahui,", sigRightX, y, {align:'center'});
+        doc.text("Wali Kelas", sigRightX, y+4, {align:'center'});
+        y += 20;
+        doc.setFont("times", "bold");
+        doc.text(wk.name, sigRightX, y, {align:'center'});
+        doc.setFont("times", "normal");
+        doc.text(`NIP. ${wk.nip}`, sigRightX, y + 4, { align: 'center' });
     }
-
-    const filename = mode === 'single' && selectedStudent 
-        ? `Rapor_Sisipan_${selectedStudent.name}.pdf` 
-        : `Rapor_Sisipan_Kelas_${selectedClass}.pdf`;
-
+    const filename = mode === 'class' ? `Rapor_Sisipan_Kelas_${selectedClass}.pdf` : `Rapor_Sisipan_${selectedStudent?.name}.pdf`;
+    
     doc.save(filename);
     setIsGenerating(false);
   };
 
+  // Default header for preview
+  const displayHeader = settings.schoolHeader && settings.schoolHeader.length > 0 
+      ? settings.schoolHeader 
+      : ["PEMERINTAH KABUPATEN MOJOKERTO", "DINAS PENDIDIKAN", "SMPN 3 PACET", "Jl. Tirta Wening, Kab. Mojokerto, Jawa Timur 61374", "Email: smpn3pacet2007@gmail.com, HP. 0815 5386 0273", "Laman: https://sekolah.mojokertokab.go.id/smpn3pacet"];
+
   return (
     <div className="flex flex-col h-full bg-gray-100 font-serif">
-      {/* Controls */}
-      <div className="p-4 bg-white border-b border-gray-200 flex flex-wrap gap-4 items-center justify-between print:hidden sticky top-0 z-10 shadow-sm font-sans">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <select
-              value={selectedClass}
-              onChange={(e) => { setSelectedClass(e.target.value); setSelectedStudentId(''); }}
-              className="pl-4 pr-8 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
-              disabled={students.length === 1} 
-            >
-              <option value="">Pilih Kelas</option>
-              {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
+      <div className="p-4 bg-white border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center print:hidden sticky top-0 z-10 shadow-sm gap-4">
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+            <select value={selectedClass} onChange={e => {setSelectedClass(e.target.value); setSelectedStudentId('')}} className="border p-2 rounded text-sm w-full sm:w-auto">
+                <option value="">Pilih Kelas</option>
+                {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <ChevronDown className="absolute right-2 top-2.5 text-gray-400" size={16} />
-          </div>
-
-          <div className="relative">
-            <select
-              value={selectedStudentId}
-              onChange={(e) => setSelectedStudentId(e.target.value)}
-              disabled={!selectedClass || students.length === 1} 
-              className="pl-4 pr-8 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none min-w-[250px]"
-            >
-              <option value="">Pilih Siswa</option>
-              {classStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <select value={selectedStudentId} onChange={e => setSelectedStudentId(e.target.value)} className="border p-2 rounded text-sm w-full sm:w-auto">
+                <option value="">Pilih Siswa</option>
+                {classStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <User className="absolute right-2 top-2.5 text-gray-400" size={16} />
-          </div>
         </div>
-
-        {/* Tab Switcher */}
+        
+        {/* VIEW MODE TABS */}
         <div className="flex bg-gray-100 p-1 rounded-lg">
             <button 
                 onClick={() => setViewMode('rapor')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold transition-all ${viewMode === 'rapor' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-2 transition-all ${viewMode === 'rapor' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-                <FileText size={16} /> Rapor Akademik
+                <Printer size={14} /> Preview Rapor
             </button>
             <button 
-                onClick={() => setViewMode('tanggungan')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold transition-all ${viewMode === 'tanggungan' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                onClick={() => setViewMode('masalah')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-2 transition-all ${viewMode === 'masalah' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-                <AlertCircle size={16} /> Tanggungan & Remidi
+                <AlertTriangle size={14} /> Cek Masalah Akademik
             </button>
         </div>
 
-        <div className="flex items-center gap-2">
-            <button 
-            onClick={() => handleDownloadPDF('single')} 
-            disabled={!selectedStudent || isGenerating}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-bold shadow-md disabled:bg-gray-300 disabled:cursor-not-allowed transition-all text-sm"
-            >
-            {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-            PDF (Siswa)
-            </button>
-            
-            <button 
-            onClick={() => handleDownloadPDF('class')} 
-            disabled={!selectedClass || isGenerating}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-bold shadow-md disabled:bg-gray-300 disabled:cursor-not-allowed transition-all text-sm"
-            >
-            {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <FileStack size={18} />}
-            Semua (Kelas)
-            </button>
-        </div>
+        {allowDownload && (
+            <div className="flex gap-2 w-full sm:w-auto">
+                <button onClick={() => handleDownloadPDF('single')} disabled={!selectedStudent || isGenerating} className="bg-purple-600 text-white px-4 py-2 rounded text-sm font-bold flex gap-2 w-full sm:w-auto justify-center disabled:opacity-50 hover:bg-purple-700 transition-colors">
+                    {isGenerating ? <Loader2 size={16} className="animate-spin"/> : <Download size={16}/>}
+                    PDF
+                </button>
+                <button onClick={() => handleDownloadPDF('class')} disabled={!selectedClass || isGenerating} className="bg-gray-800 text-white px-4 py-2 rounded text-sm font-bold flex gap-2 w-full sm:w-auto justify-center disabled:opacity-50 hover:bg-gray-900 transition-colors">
+                    {isGenerating ? <Loader2 size={16} className="animate-spin"/> : <FileStack size={16}/>}
+                    PDF Satu Kelas
+                </button>
+            </div>
+        )}
       </div>
 
-      {/* Report Preview - Modified Signatures */}
-      <div className="flex-1 overflow-auto p-8 custom-scrollbar print:p-0 print:overflow-visible">
+      <div className="flex-1 overflow-auto p-8 custom-scrollbar bg-gray-50 flex justify-center">
         {selectedStudent ? (
-          // Modified container for F4 Size (215mm x 330mm)
-          <div ref={reportRef} className="bg-white max-w-[215mm] mx-auto min-h-[330mm] shadow-2xl print:shadow-none print:w-full print:max-w-none text-sm relative font-serif">
-            
-            {/* Watermark */}
-            {settings.watermarkLogoUrl && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-10 print:opacity-10 overflow-hidden">
-                    <img src={settings.watermarkLogoUrl} alt="Watermark" className="w-[400px] h-auto object-contain" />
-                </div>
-            )}
-
-            {/* --- PAGE 1: RAPOR --- */}
-            <div className={`p-[10mm_15mm] flex flex-col min-h-[330mm] h-full relative z-10 ${viewMode === 'tanggungan' ? 'hidden print:hidden' : ''}`}>
+            <div ref={reportRef} className="bg-white w-[215mm] min-h-[330mm] shadow-lg p-[15mm] text-sm relative animate-scale-in">
                 
-                {/* KOP SEKOLAH */}
-                <div className="flex items-center justify-center border-b-4 border-double border-black pb-2 mb-4 gap-4">
-                    <div className="w-24 h-24 flex items-center justify-center shrink-0">
-                        <img 
-                            src={settings.kabupatenLogoUrl || "https://upload.wikimedia.org/wikipedia/commons/e/e3/Logo_Kabupaten_Mojokerto.png"} 
-                            alt="Logo Mojokerto" 
-                            className="w-full h-auto object-contain"
-                            onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                            }} 
-                        />
-                    </div>
-                    <div className="text-center flex-1 font-serif leading-tight text-black">
-                        {(settings.schoolHeader || [
-                            "PEMERINTAH KABUPATEN MOJOKERTO",
-                            "DINAS PENDIDIKAN",
-                            "SMPN 3 PACET",
-                            "Jl. Tirta Wening, Kab. Mojokerto, Jawa Timur 61374",
-                            "Email: smpn3pacet2007@gmail.com, HP. 0815 5386 0273",
-                            "Laman: https://sekolah.mojokertokab.go.id/smpn3pacet"
-                        ]).map((line, idx) => (
-                            <h3 key={idx} className={`${idx === 2 ? 'text-3xl font-bold tracking-wider my-1' : idx > 2 ? 'text-sm font-normal' : 'text-lg font-medium tracking-wide'}`}>
-                                {line}
-                            </h3>
-                        ))}
-                    </div>
-                </div>
+                {/* VIEW MODE: RAPOR */}
+                {viewMode === 'rapor' && (
+                    <>
+                        {/* WATERMARK */}
+                        {settings.watermarkLogoUrl && <img src={settings.watermarkLogoUrl} className="absolute inset-0 m-auto w-[300px] opacity-10 pointer-events-none" />}
+                        
+                        {/* KOP SURAT */}
+                        <div className="border-b-4 double-border border-black pb-2 mb-4 flex gap-4 items-center justify-center text-center relative border-double" style={{ borderBottomWidth: '4px', borderBottomStyle: 'double' }}>
+                            {settings.kabupatenLogoUrl && <img src={settings.kabupatenLogoUrl} className="absolute left-0 w-20 h-auto" />}
+                            <div className="w-full font-serif text-black">
+                                <p className="text-sm font-bold">{displayHeader[0] || ""}</p>
+                                <p className="text-sm font-bold">{displayHeader[1] || ""}</p>
+                                <p className="text-xl font-bold tracking-wide mt-1">{displayHeader[2] || ""}</p>
+                                <p className="text-xs font-normal mt-1">{displayHeader[3] || ""}</p>
+                                <p className="text-xs font-normal">{displayHeader[4] || ""}</p>
+                                <p className="text-xs font-normal">{displayHeader[5] || ""}</p>
+                            </div>
+                        </div>
 
-                {/* Header Title */}
-                <div className="text-center mb-4 font-serif">
-                    <h1 className="text-xl font-bold tracking-wide uppercase underline decoration-2 underline-offset-4">LAPORAN HASIL BELAJAR</h1>
-                    <h1 className="text-sm font-bold tracking-wide uppercase mt-1">TENGAH SEMESTER {settings.activeSemester === 'ganjil' ? '1 (GANJIL)' : '2 (GENAP)'} TAHUN PELAJARAN {settings.academicYear}</h1>
-                </div>
+                        <div className="text-center mb-6">
+                            <h2 className="font-bold underline text-md text-black">
+                                LAPORAN HASIL BELAJAR SISWA (SISIPAN)
+                            </h2>
+                            <p className="text-xs font-bold uppercase">TENGAH SEMESTER {settings.activeSemester.toUpperCase()} TAHUN PELAJARAN {settings.academicYear}</p>
+                        </div>
 
-                {/* Student Info - Smaller Font */}
-                <div className="mb-4 font-medium flex justify-between text-[11px]">
-                <table className="w-2/3">
-                    <tbody>
-                    <tr><td className="w-24 py-0.5">Nama Siswa</td><td className="w-4">:</td><td className="font-bold uppercase">{selectedStudent.name}</td></tr>
-                    <tr><td className="py-0.5">NIS / NISN</td><td>:</td><td>{selectedStudent.nis} / {selectedStudent.nisn || '-'}</td></tr>
-                    </tbody>
-                </table>
-                <table className="w-1/3">
-                    <tbody>
-                        <tr><td className="w-20 py-0.5">Kelas</td><td className="w-4">:</td><td className="font-bold">{selectedStudent.kelas}</td></tr>
-                        <tr><td className="py-0.5">Fase</td><td>:</td><td>D</td></tr>
-                    </tbody>
-                </table>
-                </div>
+                        <div className="flex justify-between text-xs mb-4">
+                            <div className="w-[60%]">
+                                <table><tbody>
+                                    <tr><td className="w-24">Nama Siswa</td><td>: {selectedStudent.name}</td></tr>
+                                    <tr><td>NIS / NISN</td><td>: {selectedStudent.nis} / {selectedStudent.nisn}</td></tr>
+                                </tbody></table>
+                            </div>
+                            <div className="w-[30%]">
+                                <table><tbody>
+                                    <tr><td className="w-16">Kelas</td><td>: {selectedStudent.kelas}</td></tr>
+                                    <tr><td>Fase</td><td>: D</td></tr>
+                                </tbody></table>
+                            </div>
+                        </div>
 
-                {/* A. Academic Table */}
-                <div className="mb-4">
-                <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">A. Nilai Akademik</h3>
-                <table className="w-full border-collapse border border-black text-[9px] font-serif">
-                    <thead>
-                    <tr className="bg-gray-100">
-                        <th className="border border-black p-1 w-6 text-center" rowSpan={2}>No</th>
-                        <th className="border border-black p-1 text-left w-48" rowSpan={2}>Mata Pelajaran</th>
-                        {chapterConfig.activeChaps.map(chap => (
-                            <th key={chap} className="border border-black p-1 text-center uppercase" colSpan={chapterConfig.colMap[chap].length}>
-                                {chap.replace('bab','TP ')}
-                            </th>
-                        ))}
-                        <th className="border border-black p-1 w-10 text-center" rowSpan={2}>KTS</th>
-                        <th className="border border-black p-1 w-10 text-center" rowSpan={2}>Rata<br/>Rata</th>
-                    </tr>
-                    <tr className="bg-gray-50">
-                        {chapterConfig.activeChaps.map(chap => (
-                            <React.Fragment key={chap}>
-                                {chapterConfig.colMap[chap].map(f => (
-                                    <th key={`${chap}-${f}`} className="border border-black p-1 w-8 text-center uppercase font-normal">
-                                        {f === 'sum' ? `S${chap.replace('bab','')}` : f.toUpperCase()}
-                                    </th>
-                                ))}
-                            </React.Fragment>
-                        ))}
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {subjectsData.map((subj, idx) => (
-                        <tr key={idx}>
-                        <td className="border border-black p-0.5 text-center">{idx + 1}</td>
-                        <td className="border border-black p-0.5 font-medium">{subj.subject}</td>
-                        {chapterConfig.activeChaps.map(chap => (
-                            <React.Fragment key={chap}>
-                                {chapterConfig.colMap[chap].map(f => (
-                                    <td key={`${chap}-${f}`} className="border border-black p-0.5 text-center">
-                                        {subj.chapterScores[`${chap}_${f}`]}
-                                    </td>
-                                ))}
-                            </React.Fragment>
-                        ))}
-                        <td className="border border-black p-0.5 text-center">
-                            {subj.kts !== null ? subj.kts : '-'}
-                        </td>
-                        <td className="border border-black p-0.5 text-center font-bold bg-gray-50">
-                            {subj.finalAvg !== null ? subj.finalAvg : '-'}
-                        </td>
-                        </tr>
-                    ))}
-                    </tbody>
-                </table>
-                </div>
-
-                {/* B. Kokurikuler */}
-                <div className="mb-4">
-                <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">B. Kokurikuler</h3>
-                <table className="w-full border-collapse border border-black text-[9px] font-serif">
-                    <thead>
-                    <tr className="bg-gray-100">
-                        <th className="border border-black p-1 w-8 text-center">No</th>
-                        <th className="border border-black p-1 w-1/3 text-left">Tema</th>
-                        <th className="border border-black p-1 text-left">Deskripsi</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {settings.kokurikulerProjects && settings.kokurikulerProjects.length > 0 ? (
-                        settings.kokurikulerProjects.map((proj, idx) => (
-                            <tr key={idx}>
-                                <td className="border border-black p-0.5 text-center">{idx + 1}</td>
-                                <td className="border border-black p-0.5 font-medium">{proj.theme}</td>
-                                <td className="border border-black p-0.5">{proj.description}</td>
-                            </tr>
-                        ))
-                    ) : (
-                        <tr><td className="border border-black p-0.5 text-center" colSpan={3}>-</td></tr>
-                    )}
-                    </tbody>
-                </table>
-                </div>
-
-                {/* C. Ekstrakurikuler */}
-                <div className="mb-4">
-                <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">C. Ekstrakurikuler</h3>
-                <table className="w-full border-collapse border border-black text-[9px] font-serif">
-                    <thead>
-                    <tr className="bg-gray-100">
-                        <th className="border border-black p-1 w-8 text-center">No</th>
-                        <th className="border border-black p-1 w-1/3 text-left">Nama Ekstrakurikuler</th>
-                        <th className="border border-black p-1 w-16 text-center">Predikat</th>
-                        <th className="border border-black p-1 text-left">Deskripsi</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {extraData.length > 0 ? extraData.map((extra, i) => (
-                        <tr key={i}>
-                            <td className="border border-black p-0.5 text-center">{i + 1}</td>
-                            <td className="border border-black p-0.5 font-medium">{extra.activityName}</td>
-                            <td className="border border-black p-0.5 text-center font-bold">{extra.predikat}</td>
-                            <td className="border border-black p-0.5">{extra.description}</td>
-                        </tr>
-                    )) : (
-                        <tr>
-                            <td className="border border-black p-0.5 text-center" colSpan={4}>-</td>
-                        </tr>
-                    )}
-                    </tbody>
-                </table>
-                </div>
-
-                <div className="flex gap-4">
-                    {/* D. Akhlak & Kepribadian */}
-                    <div className="flex-1 mb-4">
-                    <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">D. Akhlak & Kepribadian</h3>
-                    <table className="w-full border-collapse border border-black text-[9px] font-serif">
-                        <thead>
-                        <tr className="bg-gray-100">
-                            <th className="border border-black p-1 w-8 text-center">No</th>
-                            <th className="border border-black p-1 text-left">Aspek</th>
-                            <th className="border border-black p-1 w-16 text-center">Predikat</th>
-                            <th className="border border-black p-1 text-left">Keterangan</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <tr>
-                            <td className="border border-black p-0.5 text-center">1</td>
-                            <td className="border border-black p-0.5">Akhlak</td>
-                            <td className="border border-black p-0.5 text-center font-bold">
-                                <span className="print:inline">A</span>
-                            </td>
-                            <td className="border border-black p-0.5">Sangat Baik</td>
-                        </tr>
-                        <tr>
-                            <td className="border border-black p-0.5 text-center">2</td>
-                            <td className="border border-black p-0.5">Kepribadian</td>
-                            <td className="border border-black p-0.5 text-center font-bold">
-                                <span className="print:inline">A</span>
-                            </td>
-                            <td className="border border-black p-0.5">Sangat Baik</td>
-                        </tr>
-                        </tbody>
-                    </table>
-                    </div>
-
-                    {/* E. Presensi */}
-                    <div className="flex-1 mb-4">
-                    <h3 className="font-bold text-sm mb-1 uppercase border-b border-black inline-block">E. Ketidakhadiran</h3>
-                    <table className="w-full border-collapse border border-black text-[9px] font-serif">
-                        <thead>
-                        <tr className="bg-gray-100">
-                            <th className="border border-black p-1 w-8 text-center">No</th>
-                            <th className="border border-black p-1 text-left">Keterangan</th>
-                            <th className="border border-black p-1 w-24 text-center">Jumlah</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <tr>
-                            <td className="border border-black p-0.5 text-center">1</td>
-                            <td className="border border-black p-0.5">Sakit</td>
-                            <td className="border border-black p-0.5 text-center">{attendanceData.s} Hari</td>
-                        </tr>
-                        <tr>
-                            <td className="border border-black p-0.5 text-center">2</td>
-                            <td className="border border-black p-0.5">Izin</td>
-                            <td className="border border-black p-0.5 text-center">{attendanceData.i} Hari</td>
-                        </tr>
-                        <tr>
-                            <td className="border border-black p-0.5 text-center">3</td>
-                            <td className="border border-black p-0.5">Tanpa Keterangan</td>
-                            <td className="border border-black p-0.5 text-center">{attendanceData.a} Hari</td>
-                        </tr>
-                        </tbody>
-                    </table>
-                    </div>
-                </div>
-
-                {/* Signatures Page 1 (Single Row: KS - Parent - WK) */}
-                <div className="mt-auto pt-2 flex justify-between items-end text-xs break-inside-avoid">
-                    {/* Kiri: Kepala Sekolah */}
-                    <div className="text-center w-40">
-                        <p className="mb-16">Mengetahui,<br/>Kepala Sekolah</p>
-                        <p className="font-bold underline">{settings.principalName}</p>
-                        <p>NIP. {settings.principalNip}</p>
-                    </div>
-
-                    {/* Tengah: Orang Tua */}
-                    <div className="text-center w-40">
-                        <p className="mb-16">Mengetahui,<br/>Orang Tua / Wali Murid</p>
-                        <p className="font-bold border-b border-black inline-block min-w-[120px]"></p>
-                    </div>
-
-                    {/* Kanan: Wali Kelas */}
-                    <div className="text-center w-40">
-                        <p className="mb-16">
-                            Mojokerto, {settings.midSemesterDate || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br/>
-                            Wali Kelas
-                        </p>
-                        <p className="font-bold underline">{waliKelasInfo.name}</p>
-                        <p className="mt-1">NIP. {waliKelasInfo.nip}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* --- PAGE 2: MONITORING TANGGUNGAN & REMIDI --- */}
-            {/* Same layout for Page 2 preview */}
-            <div className={`p-[10mm_15mm] h-full flex flex-col min-h-[330mm] relative z-10 ${viewMode === 'rapor' ? 'hidden print:hidden' : ''}`}>
-                
-                {/* KOP SEKOLAH (Repeated on Page 2) */}
-                <div className="flex items-center justify-center border-b-4 border-double border-black pb-2 mb-6 gap-4">
-                    <div className="w-24 h-24 flex items-center justify-center shrink-0">
-                        <img 
-                            src={settings.kabupatenLogoUrl || "https://upload.wikimedia.org/wikipedia/commons/e/e3/Logo_Kabupaten_Mojokerto.png"} 
-                            alt="Logo Mojokerto" 
-                            className="w-full h-auto object-contain"
-                            onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                            }} 
-                        />
-                    </div>
-                    <div className="text-center flex-1 font-serif leading-tight text-black">
-                        {(settings.schoolHeader || [
-                            "PEMERINTAH KABUPATEN MOJOKERTO",
-                            "DINAS PENDIDIKAN",
-                            "SMPN 3 PACET",
-                            "Jl. Tirta Wening, Kab. Mojokerto, Jawa Timur 61374",
-                            "Email: smpn3pacet2007@gmail.com, HP. 0815 5386 0273",
-                            "Laman: https://sekolah.mojokertokab.go.id/smpn3pacet"
-                        ]).map((line, idx) => (
-                            <h3 key={idx} className={`${idx === 2 ? 'text-3xl font-bold tracking-wider my-1' : idx > 2 ? 'text-sm font-normal' : 'text-lg font-medium tracking-wide'}`}>
-                                {line}
-                            </h3>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="text-center mb-6 font-serif">
-                    <h1 className="text-lg font-bold tracking-wide uppercase">CATATAN AKADEMIK SISWA</h1>
-                    <h1 className="text-base font-bold tracking-wide uppercase mt-1">DAFTAR TANGGUNGAN & REMIDI</h1>
-                </div>
-
-                {/* Student Info */}
-                <div className="mb-6 font-medium flex justify-between text-xs">
-                <table className="w-2/3">
-                    <tbody>
-                    <tr><td className="w-24 py-1">Nama Siswa</td><td className="w-4">:</td><td className="font-bold uppercase">{selectedStudent.name}</td></tr>
-                    <tr><td className="py-1">NIS / NISN</td><td>:</td><td>{selectedStudent.nis} / {selectedStudent.nisn || '-'}</td></tr>
-                    </tbody>
-                </table>
-                <table className="w-1/3">
-                    <tbody>
-                        <tr><td className="w-20 py-1">Kelas</td><td className="w-4">:</td><td className="font-bold">{selectedStudent.kelas}</td></tr>
-                    </tbody>
-                </table>
-                </div>
-
-                <div className="mb-6">
-                    <h3 className="font-bold text-sm mb-2">I. Daftar Tanggungan (Nilai Kosong / 0)</h3>
-                    <table className="w-full border-collapse border border-black text-xs">
-                        <thead>
-                            <tr className="bg-red-50">
-                                <th className="border border-black p-1 w-8 text-center">No</th>
-                                <th className="border border-black p-1 text-left">Mata Pelajaran</th>
-                                <th className="border border-black p-1 text-left w-20">Tgl</th>
-                                <th className="border border-black p-1 text-left">Tagihan</th>
-                                <th className="border border-black p-1 text-left w-32">Ket.</th>
-                                <th className="border border-black p-1 w-10 text-center">Nilai</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {studentIssues.tanggungan.length > 0 ? (
-                                studentIssues.tanggungan.map((item, idx) => (
-                                    <tr key={idx}>
-                                        <td className="border border-black p-1 text-center">{idx + 1}</td>
-                                        <td className="border border-black p-1 font-medium">{item.subject}</td>
-                                        <td className="border border-black p-1 text-[10px]">{item.date}</td>
-                                        <td className="border border-black p-1">{item.task}</td>
-                                        <td className="border border-black p-1 text-[10px] italic">{item.description}</td>
-                                        <td className="border border-black p-1 text-center font-bold text-red-600">0</td>
+                        {/* A. NILAI AKADEMIK */}
+                        <div className="mb-4">
+                            <h3 className="font-bold text-xs mb-1">A. Nilai Akademik</h3>
+                            <table className="w-full border-collapse border border-black text-[10px]">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th rowSpan={2} className="border border-black p-1 w-6 text-center">No</th>
+                                        <th rowSpan={2} className="border border-black p-1">Mata Pelajaran</th>
+                                        {chapterConfig.activeChaps.map(c => <th key={c} colSpan={chapterConfig.colMap[c].length} className="border border-black p-1 text-center">{c.replace('bab','TP ')}</th>)}
+                                        <th rowSpan={2} className="border border-black p-1 w-8 text-center">KTS</th>
+                                        <th rowSpan={2} className="border border-black p-1 w-8 text-center">Rerata</th>
                                     </tr>
-                                ))
-                            ) : (
-                                <tr><td className="border border-black p-1 text-center" colSpan={6}>Tidak ada tanggungan</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="mb-4">
-                    <h3 className="font-bold text-sm mb-2">II. Daftar Remidi (Nilai &lt; 70)</h3>
-                    <table className="w-full border-collapse border border-black text-xs">
-                        <thead>
-                            <tr className="bg-orange-50">
-                                <th className="border border-black p-1 w-8 text-center">No</th>
-                                <th className="border border-black p-1 text-left">Mata Pelajaran</th>
-                                <th className="border border-black p-1 text-left w-20">Tgl</th>
-                                <th className="border border-black p-1 text-left">Tagihan</th>
-                                <th className="border border-black p-1 text-left w-32">Ket.</th>
-                                <th className="border border-black p-1 w-10 text-center">Nilai</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {studentIssues.remidi.length > 0 ? (
-                                studentIssues.remidi.map((item, idx) => (
-                                    <tr key={idx}>
-                                        <td className="border border-black p-1 text-center">{idx + 1}</td>
-                                        <td className="border border-black p-1 font-medium">{item.subject}</td>
-                                        <td className="border border-black p-1 text-[10px]">{item.date}</td>
-                                        <td className="border border-black p-1">{item.task}</td>
-                                        <td className="border border-black p-1 text-[10px] italic">{item.description}</td>
-                                        <td className="border border-black p-1 text-center font-bold text-orange-600">{item.score}</td>
+                                    <tr className="bg-gray-200">
+                                        {chapterConfig.activeChaps.map(c => chapterConfig.colMap[c].map(f => <th key={c+f} className="border border-black p-1 text-center w-6">{f==='sum'?'S':f.toUpperCase()}</th>))}
                                     </tr>
-                                ))
-                            ) : (
-                                <tr><td className="border border-black p-1 text-center" colSpan={6}>Tidak ada remidi</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-                
-                <p className="text-[10px] italic mt-2">* Mohon segera menyelesaikan tanggungan dan remidi sebelum Penilaian Akhir Semester.</p>
+                                </thead>
+                                <tbody>
+                                    {subjectsData.map((s, i) => (
+                                        <tr key={i}>
+                                            <td className="border border-black p-1 text-center">{i+1}</td>
+                                            <td className="border border-black p-1">{s.subject}</td>
+                                            {chapterConfig.activeChaps.map(c => chapterConfig.colMap[c].map(f => <td key={c+f} className="border border-black p-1 text-center">{s.chapterScores[`${c}_${f}`]}</td>))}
+                                            <td className="border border-black p-1 text-center">{s.kts||'-'}</td>
+                                            <td className="border border-black p-1 text-center font-bold">{s.finalAvg||'-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
 
-                {/* Signatures Page 2 */}
-                <div className="mt-auto pt-4 flex justify-between items-end text-xs break-inside-avoid">
-                    <div className="text-center w-40">
-                        <p className="mb-16">Mengetahui,<br/>Kepala Sekolah</p>
-                        <p className="font-bold underline">{settings.principalName}</p>
-                        <p>NIP. {settings.principalNip}</p>
+                        {/* B. KOKURIKULER */}
+                        <div className="mb-4">
+                            <h3 className="font-bold text-xs mb-1">B. Projek Penguatan Profil Pelajar Pancasila (Kokurikuler)</h3>
+                            <table className="w-full border-collapse border border-black text-[10px]">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border border-black p-1 w-6 text-center">No</th>
+                                        <th className="border border-black p-1 w-40">Tema</th>
+                                        <th className="border border-black p-1">Uraian Kegiatan</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(activeP5Projects || []).length > 0 ? (
+                                        (activeP5Projects || []).map((p, i) => (
+                                            <tr key={i}>
+                                                <td className="border border-black p-1 text-center">{i+1}</td>
+                                                <td className="border border-black p-1">{p.theme}</td>
+                                                <td className="border border-black p-1">{p.description}</td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr><td colSpan={3} className="border border-black p-1 text-center italic">Belum ada projek</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* C. EKSTRAKURIKULER */}
+                        <div className="mb-4">
+                            <h3 className="font-bold text-xs mb-1">C. Ekstrakurikuler</h3>
+                            <table className="w-full border-collapse border border-black text-[10px]">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border border-black p-1 w-6 text-center">No</th>
+                                        <th className="border border-black p-1">Nama Kegiatan</th>
+                                        <th className="border border-black p-1 w-16 text-center">Predikat</th>
+                                        <th className="border border-black p-1">Keterangan</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(extraData || []).length > 0 ? (
+                                        extraData.map((e, i) => (
+                                            <tr key={i}>
+                                                <td className="border border-black p-1 text-center">{i+1}</td>
+                                                <td className="border border-black p-1">{e.activityName}</td>
+                                                <td className="border border-black p-1 text-center">{e.predikat}</td>
+                                                <td className="border border-black p-1">{e.description}</td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr><td colSpan={4} className="border border-black p-1 text-center italic">Tidak mengikuti ekstrakurikuler</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* D & E */}
+                        <div className="flex gap-4 mb-4">
+                            <div className="w-1/2">
+                                <h3 className="font-bold text-xs mb-1">D. Ketidakhadiran</h3>
+                                <table className="w-full border-collapse border border-black text-[10px]">
+                                    <tbody>
+                                        <tr>
+                                            <td className="border border-black p-1 w-32">Sakit</td>
+                                            <td className="border border-black p-1 text-center">{attendanceData.s} hari</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="border border-black p-1">Izin</td>
+                                            <td className="border border-black p-1 text-center">{attendanceData.i} hari</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="border border-black p-1">Tanpa Keterangan</td>
+                                            <td className="border border-black p-1 text-center">{attendanceData.a} hari</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="w-1/2">
+                                <h3 className="font-bold text-xs mb-1">E. Kepribadian & Akhlak</h3>
+                                <table className="w-full border-collapse border border-black text-[10px]">
+                                    <thead>
+                                        <tr className="bg-gray-200">
+                                            <th className="border border-black p-1 w-6 text-center">No</th>
+                                            <th className="border border-black p-1">Aspek</th>
+                                            <th className="border border-black p-1 text-center">Keterangan</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td className="border border-black p-1 text-center">1</td><td className="border border-black p-1">Kelakuan / Akhlak</td><td className="border border-black p-1 text-center">Baik</td></tr>
+                                        <tr><td className="border border-black p-1 text-center">2</td><td className="border border-black p-1">Kerajinan</td><td className="border border-black p-1 text-center">Baik</td></tr>
+                                        <tr><td className="border border-black p-1 text-center">3</td><td className="border border-black p-1">Kerapian</td><td className="border border-black p-1 text-center">Baik</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Signatures */}
+                        <div className="flex justify-between text-xs mt-8">
+                            <div className="text-center w-1/3">
+                                <p>Mengetahui,</p>
+                                <p>Orang Tua / Wali</p>
+                                <div className="h-16"></div>
+                                <p>(....................................)</p>
+                            </div>
+                            <div className="text-center w-1/3">
+                                <p>Mojokerto, {settings.midSemesterDate?.[settings.activeSemester] || new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
+                                <p>Wali Kelas</p>
+                                <div className="h-16"></div>
+                                <p className="font-bold underline">{waliKelasInfo.name}</p>
+                                <p>NIP. {waliKelasInfo.nip}</p>
+                            </div>
+                        </div>
+                        
+                        <div className="flex justify-center text-xs mt-4">
+                            <div className="text-center w-1/3">
+                                <p>Mengetahui,</p>
+                                <p>Kepala SMPN 3 Pacet</p>
+                                <div className="h-16"></div>
+                                <p className="font-bold underline">{settings.principalName}</p>
+                                <p>NIP. {settings.principalNip}</p>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* VIEW MODE: MASALAH AKADEMIK */}
+                {viewMode === 'masalah' && (
+                    <div className="mb-4 min-h-[400px]">
+                        <h2 className="font-bold text-lg text-center mb-4 text-red-600">DAFTAR MASALAH AKADEMIK SISWA</h2>
+                        <div className="text-center mb-6 font-bold">{selectedStudent.name} ({selectedStudent.kelas})</div>
+
+                        <table className="w-full border-collapse border border-black text-[10px]">
+                            <thead>
+                                <tr className="bg-red-600 text-white">
+                                    <th className="border border-black p-2 w-8 text-center">No</th>
+                                    <th className="border border-black p-2 w-32">Mata Pelajaran</th>
+                                    <th className="border border-black p-2">Tugas / Penilaian</th>
+                                    <th className="border border-black p-2 w-20 text-center">Tanggal</th>
+                                    <th className="border border-black p-2 w-12 text-center">Nilai</th>
+                                    <th className="border border-black p-2 w-24 text-center">Status</th>
+                                    <th className="border border-black p-2 w-40">Keterangan Guru</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {allProblems.length > 0 ? (
+                                    allProblems.map((p, idx) => (
+                                        <tr key={idx}>
+                                            <td className="border border-black p-2 text-center">{idx + 1}</td>
+                                            <td className="border border-black p-2 font-bold">{p.subject}</td>
+                                            <td className="border border-black p-2">{p.taskName}</td>
+                                            <td className="border border-black p-2 text-center">{p.date}</td>
+                                            <td className="border border-black p-2 text-center font-bold">{p.score}</td>
+                                            <td className={`border border-black p-2 text-center font-bold ${p.type === 'TANGGUNGAN' ? 'text-red-600' : 'text-orange-600'}`}>{p.type}</td>
+                                            <td className="border border-black p-2 italic">{p.description}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={7} className="border border-black p-8 text-center text-gray-500 italic">
+                                            Tidak ada masalah akademik (Nilai Kosong atau Remidi) yang ditemukan.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
-                    <div className="text-center w-40">
-                        <p className="mb-16">Mengetahui,<br/>Orang Tua / Wali Murid</p>
-                        <p className="font-bold border-b border-black inline-block min-w-[120px]"></p>
-                    </div>
-                    <div className="text-center w-40">
-                        <p className="mb-16">
-                            Mojokerto, {settings.midSemesterDate || new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}<br/>
-                            Wali Kelas
-                        </p>
-                        <p className="font-bold underline">{waliKelasInfo.name}</p>
-                        <p className="mt-1">NIP. {waliKelasInfo.nip}</p>
-                    </div>
-                </div>
+                )}
             </div>
-
-          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <User size={64} className="mb-4 opacity-20" />
-            <p>Pilih kelas dan siswa untuk melihat rapor sisipan.</p>
-          </div>
+            <div className="flex items-center justify-center h-full text-gray-400">
+                Silakan pilih siswa terlebih dahulu.
+            </div>
         )}
       </div>
     </div>

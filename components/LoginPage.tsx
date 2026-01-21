@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { School, LogIn, KeyRound, User, ShieldCheck, ClipboardList } from 'lucide-react';
+import { School, User, ShieldCheck, ClipboardList, GraduationCap } from 'lucide-react';
 import { Student, Teacher } from '../types';
 
 interface LoginPageProps {
@@ -9,6 +9,7 @@ interface LoginPageProps {
   onLogin: (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => void;
   adminPasswordSettings: string;
   teacherPasswordSettings: string;
+  leaderPasswordSettings: string;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ 
@@ -16,348 +17,234 @@ const LoginPage: React.FC<LoginPageProps> = ({
   teachers, 
   onLogin, 
   adminPasswordSettings, 
-  teacherPasswordSettings 
+  teacherPasswordSettings,
+  leaderPasswordSettings
 }) => {
   const [activeTab, setActiveTab] = useState<'admin' | 'teacher' | 'student' | 'leader'>('student');
   const [error, setError] = useState('');
 
-  // Student State
+  // States
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-  
-  // Teacher State
   const [selectedTeacherName, setSelectedTeacherName] = useState<string>('');
   const [teacherPassword, setTeacherPassword] = useState('');
-
-  // Admin State
   const [adminPassword, setAdminPassword] = useState('');
-
-  // Leader State
   const [leaderClass, setLeaderClass] = useState<string>('');
   const [leaderPassword, setLeaderPassword] = useState('');
 
-  // Extract classes
-  const availableClasses = useMemo(() => {
-    const classes = Array.from(new Set(students.map(s => s.kelas)));
-    return classes.sort();
-  }, [students]);
+  const availableClasses = useMemo(() => Array.from(new Set(students.map(s => s.kelas))).sort(), [students]);
+  const filteredStudents = useMemo(() => selectedClass ? students.filter(s => s.kelas === selectedClass) : [], [students, selectedClass]);
+  const uniqueTeachers = useMemo(() => Array.from(new Set(teachers.map(t => t.name))).sort(), [teachers]);
 
-  // Filter students by selected class
-  const filteredStudents = useMemo(() => {
-    if (!selectedClass) return [];
-    return students.filter(s => s.kelas === selectedClass);
-  }, [students, selectedClass]);
-
-  // Unique Teachers for Dropdown
-  const uniqueTeachers = useMemo(() => {
-    const names = Array.from(new Set(teachers.map(t => t.name)));
-    return names.sort();
-  }, [teachers]);
-
-  const handleStudentLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStudentId) {
-      setError('Silakan pilih nama siswa');
-      return;
-    }
-    const student = students.find(s => s.id.toString() === selectedStudentId);
-    if (student) {
-      onLogin('student', student);
-    }
-  };
-
-  const handleTeacherLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTeacherName) {
-      setError('Pilih nama guru.');
-      return;
-    }
-    if (String(teacherPassword).trim() === String(teacherPasswordSettings).trim()) {
-      onLogin('teacher', { name: selectedTeacherName });
-    } else {
-      setError('Password guru salah.');
-    }
-  };
-
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const input = String(adminPassword).trim();
-    const settingPass = String(adminPasswordSettings).trim();
-    
-    if (input === settingPass || input === 'admin123') {
-      onLogin('admin');
-    } else {
-      setError('Password admin salah.');
-    }
-  };
-
-  const handleLeaderLogin = (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
       e.preventDefault();
-      if (!leaderClass) {
-          setError('Pilih kelas.');
-          return;
-      }
+      setError('');
       
-      // Password check for Leader (Default: 123456)
-      if (leaderPassword.trim() === '123456') {
-          onLogin('leader', { className: leaderClass });
-      } else {
-          setError('Password ketua kelas salah.');
+      if (activeTab === 'student') {
+          if (!selectedStudentId) return setError('Silakan pilih nama siswa.');
+          const student = students.find(s => s.id.toString() === selectedStudentId);
+          if (student) onLogin('student', student);
+      } 
+      else if (activeTab === 'teacher') {
+          if (!selectedTeacherName) return setError('Silakan pilih nama guru.');
+          if (teacherPassword.trim() === teacherPasswordSettings.trim()) onLogin('teacher', { name: selectedTeacherName });
+          else setError('Password salah.');
       }
-  };
-
-  const switchTab = (tab: 'admin' | 'teacher' | 'student' | 'leader') => {
-    setActiveTab(tab);
-    setError('');
-    // Reset forms
-    setSelectedClass('');
-    setSelectedStudentId('');
-    setSelectedTeacherName('');
-    setTeacherPassword('');
-    setAdminPassword('');
-    setLeaderClass('');
-    setLeaderPassword('');
+      else if (activeTab === 'leader') {
+          if (!leaderClass) return setError('Silakan pilih kelas.');
+          if (leaderPassword.trim() === leaderPasswordSettings.trim()) onLogin('leader', { className: leaderClass });
+          else setError('Password salah.');
+      }
+      else if (activeTab === 'admin') {
+          if (adminPassword.trim() === adminPasswordSettings.trim() || adminPassword.trim() === 'admin123') onLogin('admin');
+          else setError('Password salah.');
+      }
   };
 
   return (
-    <div 
-      className="min-h-screen flex items-center justify-center p-4 bg-cover bg-center font-sans"
-      style={{
-        backgroundImage: `url('https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop')`, 
-      }}
-    >
-      <div className="absolute inset-0 bg-black/10"></div>
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 font-sans overflow-hidden relative">
+      
+      {/* Background Image - MacBook Style */}
+      <div 
+        className="absolute inset-0 z-0"
+        style={{
+            backgroundImage: `url('https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=2526&auto=format&fit=crop')`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px]"></div>
+      </div>
 
-      <div className="w-full max-w-[400px] relative z-10">
-        <div className="bg-white/20 backdrop-blur-xl border border-white/30 rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/20">
-          
-          {/* Header */}
-          <div className="pt-8 pb-6 px-8 text-center border-b border-white/10">
-            <div className="mx-auto w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center shadow-inner mb-4 text-white backdrop-blur-md border border-white/20">
-              <School size={32} className="drop-shadow-md" />
+      {/* Main Glass Card */}
+      <div className="relative z-10 w-full max-w-[400px] bg-white/20 backdrop-blur-2xl border border-white/30 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] p-8 flex flex-col items-center animate-scale-in ring-1 ring-white/20">
+        
+        {/* Icon */}
+        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-blue-900/20 border border-white/20">
+           <School size={32} className="text-white" />
+        </div>
+
+        {/* Title */}
+        <h1 className="text-2xl font-bold text-white mb-1 text-center tracking-tight drop-shadow-sm">Sistem Penilaian</h1>
+        <p className="text-white/80 text-xs font-semibold mb-8 tracking-widest uppercase shadow-sm">SMPN 3 PACET</p>
+
+        {/* Role Tabs - Segmented Control */}
+        <div className="w-full bg-black/20 p-1 rounded-xl flex gap-1 mb-6 backdrop-blur-md border border-white/10">
+            <button 
+                onClick={() => setActiveTab('admin')}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${activeTab === 'admin' ? 'bg-white text-gray-900 shadow-sm' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+            >
+                Admin
+            </button>
+            <button 
+                onClick={() => setActiveTab('teacher')}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${activeTab === 'teacher' ? 'bg-white text-gray-900 shadow-sm' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+            >
+                Guru
+            </button>
+            <button 
+                onClick={() => setActiveTab('student')}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${activeTab === 'student' ? 'bg-white text-gray-900 shadow-sm' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+            >
+                Siswa
+            </button>
+            <button 
+                onClick={() => setActiveTab('leader')}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-300 ${activeTab === 'leader' ? 'bg-white text-gray-900 shadow-sm' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+            >
+                Ketua
+            </button>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+            <div className="w-full bg-red-500/90 border border-red-400/50 backdrop-blur-md text-white text-xs font-bold py-3 px-3 rounded-xl mb-4 text-center shadow-md animate-shake">
+                {error}
             </div>
-            <h1 className="text-xl font-bold text-white tracking-tight drop-shadow-sm leading-tight">
-              Sistem Penilaian Terpadu
-            </h1>
-            <p className="text-xs text-white/90 mt-2 font-medium tracking-wide">SMPN 3 PACET</p>
-          </div>
+        )}
 
-          {/* Tabs */}
-          <div className="flex p-2 gap-1 bg-black/10 mx-6 mt-4 rounded-xl border border-white/5 overflow-x-auto custom-scrollbar">
-            <button
-              onClick={() => switchTab('admin')}
-              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
-                activeTab === 'admin' 
-                  ? 'bg-white text-gray-800 shadow-md' 
-                  : 'text-white hover:bg-white/10'
-              }`}
-            >
-              Admin
-            </button>
-            <button
-              onClick={() => switchTab('teacher')}
-              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
-                activeTab === 'teacher' 
-                  ? 'bg-white text-gray-800 shadow-md' 
-                  : 'text-white hover:bg-white/10'
-              }`}
-            >
-              Guru
-            </button>
-            <button
-              onClick={() => switchTab('student')}
-              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
-                activeTab === 'student' 
-                  ? 'bg-white text-gray-800 shadow-md' 
-                  : 'text-white hover:bg-white/10'
-              }`}
-            >
-              Siswa
-            </button>
-            <button
-              onClick={() => switchTab('leader')}
-              className={`flex-1 py-2 text-[9px] font-bold uppercase tracking-wider rounded-lg transition-all whitespace-nowrap px-2 ${
-                activeTab === 'leader' 
-                  ? 'bg-white text-gray-800 shadow-md' 
-                  : 'text-white hover:bg-white/10'
-              }`}
-            >
-              Ketua
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="p-6 pt-4">
-            {error && (
-              <div className="mb-4 p-3 bg-red-500/30 backdrop-blur-md text-white text-xs rounded-xl border border-red-500/30 flex items-center shadow-sm font-medium">
-                 <span className="mr-2">⚠️</span> {error}
-              </div>
-            )}
-
+        {/* Form Fields */}
+        <form onSubmit={handleLogin} className="w-full space-y-4">
+            
             {activeTab === 'student' && (
-              <form onSubmit={handleStudentLogin} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-white ml-1">Kelas</label>
-                  <div className="relative">
-                    <select
-                      value={selectedClass}
-                      onChange={(e) => {
-                        setSelectedClass(e.target.value);
-                        setSelectedStudentId('');
-                      }}
-                      className="w-full pl-3 pr-8 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-gray-200 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm appearance-none backdrop-blur-md font-medium"
-                      required
-                    >
-                      <option value="">Pilih Kelas...</option>
-                      {availableClasses.map(cls => (
-                        <option key={cls} value={cls}>{cls}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="space-y-4 animate-fade-in">
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Kelas</label>
+                        <select 
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none appearance-none font-medium backdrop-blur-sm"
+                            value={selectedClass}
+                            onChange={e => { setSelectedClass(e.target.value); setSelectedStudentId(''); }}
+                            required
+                        >
+                            <option value="" className="text-gray-900">Pilih Kelas...</option>
+                            {availableClasses.map(c => <option key={c} value={c} className="text-gray-900">{c}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Nama Siswa</label>
+                        <select 
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none appearance-none disabled:opacity-50 font-medium backdrop-blur-sm"
+                            value={selectedStudentId}
+                            onChange={e => setSelectedStudentId(e.target.value)}
+                            disabled={!selectedClass}
+                            required
+                        >
+                            <option value="" className="text-gray-900">Pilih Nama...</option>
+                            {filteredStudents.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
+                        </select>
+                    </div>
                 </div>
-
-                <div className={`space-y-1 transition-all duration-300 ${selectedClass ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                  <label className="text-xs font-medium text-white ml-1">Nama Siswa</label>
-                  <div className="relative">
-                    <select
-                      value={selectedStudentId}
-                      onChange={(e) => setSelectedStudentId(e.target.value)}
-                      className="w-full pl-3 pr-8 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm appearance-none backdrop-blur-md font-medium"
-                      disabled={!selectedClass}
-                      required
-                    >
-                      <option value="">Pilih Nama...</option>
-                      {filteredStudents.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <button type="submit" className="w-full mt-2 bg-white/90 hover:bg-white text-blue-900 font-bold py-2.5 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
-                  <User size={16} />
-                  <span>Masuk Siswa</span>
-                </button>
-              </form>
             )}
 
             {activeTab === 'teacher' && (
-              <form onSubmit={handleTeacherLogin} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-white ml-1">Nama Guru</label>
-                  <div className="relative">
-                    <select
-                      value={selectedTeacherName}
-                      onChange={(e) => setSelectedTeacherName(e.target.value)}
-                      className="w-full pl-3 pr-8 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-gray-200 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm appearance-none backdrop-blur-md font-medium"
-                      required
-                    >
-                      <option value="">Pilih Nama Guru...</option>
-                      {uniqueTeachers.map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="space-y-4 animate-fade-in">
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Nama Guru</label>
+                        <select 
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none appearance-none font-medium backdrop-blur-sm"
+                            value={selectedTeacherName}
+                            onChange={e => setSelectedTeacherName(e.target.value)}
+                            required
+                        >
+                            <option value="" className="text-gray-900">Pilih Nama Guru...</option>
+                            {uniqueTeachers.map(t => <option key={t} value={t} className="text-gray-900">{t}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Password</label>
+                        <input 
+                            type="password"
+                            placeholder="Masukkan Password..."
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none font-medium backdrop-blur-sm"
+                            value={teacherPassword}
+                            onChange={e => setTeacherPassword(e.target.value)}
+                            required
+                        />
+                    </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-white ml-1">Password</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/70">
-                      <KeyRound size={16} />
-                    </div>
-                    <input
-                      type="password"
-                      value={teacherPassword}
-                      onChange={(e) => setTeacherPassword(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm backdrop-blur-md font-medium"
-                      placeholder="Password"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <button type="submit" className="w-full mt-2 bg-white/90 hover:bg-white text-indigo-900 font-bold py-2.5 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
-                  <LogIn size={16} />
-                  <span>Masuk Guru</span>
-                </button>
-              </form>
-            )}
-
-            {activeTab === 'leader' && (
-                <form onSubmit={handleLeaderLogin} className="space-y-4">
-                    <div className="space-y-1">
-                        <label className="text-xs font-medium text-white ml-1">Kelas</label>
-                        <div className="relative">
-                            <select
-                                value={leaderClass}
-                                onChange={(e) => setLeaderClass(e.target.value)}
-                                className="w-full pl-3 pr-8 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-gray-200 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm appearance-none backdrop-blur-md font-medium"
-                                required
-                            >
-                                <option value="">Pilih Kelas...</option>
-                                {availableClasses.map(cls => (
-                                    <option key={cls} value={cls}>{cls}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-1">
-                        <label className="text-xs font-medium text-white ml-1">Password</label>
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/70">
-                                <KeyRound size={16} />
-                            </div>
-                            <input
-                                type="password"
-                                value={leaderPassword}
-                                onChange={(e) => setLeaderPassword(e.target.value)}
-                                className="w-full pl-9 pr-4 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm backdrop-blur-md font-medium"
-                                placeholder="Password"
-                                required
-                            />
-                        </div>
-                    </div>
-
-                    <button type="submit" className="w-full mt-2 bg-white/90 hover:bg-white text-emerald-900 font-bold py-2.5 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
-                        <ClipboardList size={16} />
-                        <span>Masuk Ketua Kelas</span>
-                    </button>
-                </form>
             )}
 
             {activeTab === 'admin' && (
-              <form onSubmit={handleAdminLogin} className="space-y-4">
-                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-white ml-1">Password Admin</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-white/70">
-                      <ShieldCheck size={16} />
+                <div className="space-y-4 animate-fade-in">
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Password Administrator</label>
+                        <input 
+                            type="password"
+                            placeholder="Masukkan Password Admin..."
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none font-medium backdrop-blur-sm"
+                            value={adminPassword}
+                            onChange={e => setAdminPassword(e.target.value)}
+                            required
+                        />
                     </div>
-                    <input
-                      type="password"
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 bg-white/40 hover:bg-white/50 border border-white/30 rounded-xl text-gray-900 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/60 focus:bg-white/60 transition-all text-sm backdrop-blur-md font-medium"
-                      placeholder="Password"
-                      required
-                    />
-                  </div>
                 </div>
-
-                <button type="submit" className="w-full mt-2 bg-gray-900/80 hover:bg-gray-900 text-white font-bold py-2.5 rounded-xl shadow-lg border border-white/10 transition-all active:scale-95 flex items-center justify-center space-x-2 text-sm">
-                  <ShieldCheck size={16} />
-                  <span>Masuk Admin</span>
-                </button>
-              </form>
             )}
 
-          </div>
+            {activeTab === 'leader' && (
+                <div className="space-y-4 animate-fade-in">
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Kelas</label>
+                        <select 
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none appearance-none font-medium backdrop-blur-sm"
+                            value={leaderClass}
+                            onChange={e => setLeaderClass(e.target.value)}
+                            required
+                        >
+                            <option value="" className="text-gray-900">Pilih Kelas...</option>
+                            {availableClasses.map(c => <option key={c} value={c} className="text-gray-900">{c}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-white/90 text-xs font-bold mb-1.5 ml-1 shadow-sm">Password Ketua</label>
+                        <input 
+                            type="password"
+                            placeholder="Masukkan Password..."
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/50 focus:ring-2 focus:ring-white/50 focus:bg-black/30 transition-all outline-none font-medium backdrop-blur-sm"
+                            value={leaderPassword}
+                            onChange={e => setLeaderPassword(e.target.value)}
+                            required
+                        />
+                    </div>
+                </div>
+            )}
+
+            <button 
+                type="submit" 
+                className="w-full mt-4 bg-white hover:bg-gray-100 text-gray-900 font-bold py-3.5 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 group"
+            >
+                {activeTab === 'student' && <User size={18} className="text-blue-600 group-hover:scale-110 transition-transform"/>}
+                {activeTab === 'teacher' && <GraduationCap size={18} className="text-blue-600 group-hover:scale-110 transition-transform"/>}
+                {activeTab === 'admin' && <ShieldCheck size={18} className="text-blue-600 group-hover:scale-110 transition-transform"/>}
+                {activeTab === 'leader' && <ClipboardList size={18} className="text-blue-600 group-hover:scale-110 transition-transform"/>}
+                <span>Masuk {activeTab === 'leader' ? 'Ketua Kelas' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</span>
+            </button>
+
+        </form>
+
+        <div className="mt-8 text-center opacity-60">
+            <p className="text-[10px] text-white font-medium tracking-wide">© 2026 iGrade System v2.1</p>
         </div>
-        <div className="text-center mt-4 text-white/60 text-[10px] font-medium tracking-wider drop-shadow-md">
-           &copy; {new Date().getFullYear()} iGrade System v2.0
-        </div>
+
       </div>
     </div>
   );

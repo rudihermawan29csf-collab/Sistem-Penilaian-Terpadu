@@ -114,18 +114,30 @@ export interface AppSettings {
   principalNip: string;
   adminPassword?: string;
   teacherDefaultPassword?: string;
+  leaderPassword?: string; // Added Leader Password
   kabupatenLogoUrl?: string; 
   watermarkLogoUrl?: string; // Added Watermark URL
   
   schoolHeader: string[]; // Added School Header Lines
   subjects: string[]; // Added Subjects List
   
-  midSemesterDate: string; 
+  // UPDATED: Date is now per semester
+  midSemesterDate: {
+      ganjil: string;
+      genap: string;
+  }; 
+  
   upRanges: UpRange[];
-  kokurikulerProjects: KokurikulerProject[]; 
+  
+  // UPDATED: Split Kokurikuler by Semester
+  kokurikulerProjects: {
+      ganjil: KokurikulerProject[];
+      genap: KokurikulerProject[];
+  }; 
   
   midSemesterFieldConfig: Record<ChapterKey, Record<FormativeKey, boolean>>; 
   
   waliKelasMap: Record<string, { name: string; nip: string }>; 
-  extracurriculars: { name: string; description: string; coach: string }[]; 
+  // REMOVED description from settings, it will be auto-generated based on grades
+  extracurriculars: { name: string; coach: string }[]; 
 }
