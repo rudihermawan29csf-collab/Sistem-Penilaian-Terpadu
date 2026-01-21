@@ -1034,11 +1034,11 @@ const App: React.FC = () => {
                 <SectionLabel label="Laporan" collapsed={isSidebarCollapsed} />
                 <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} collapsed={isSidebarCollapsed} />
                 
-                <SectionLabel label="Sistem" collapsed={isSidebarCollapsed} />
-                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} collapsed={isSidebarCollapsed} />
-                
                 {userRole === 'admin' && (
                     <>
+                        <SectionLabel label="Sistem" collapsed={isSidebarCollapsed} />
+                        <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} collapsed={isSidebarCollapsed} />
+                        
                         <SectionLabel label="Admin Master" collapsed={isSidebarCollapsed} />
                         <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} collapsed={isSidebarCollapsed} />
                         <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} collapsed={isSidebarCollapsed} />
@@ -1179,6 +1179,7 @@ const App: React.FC = () => {
                              <GradeTable 
                                 students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []}
                                 selectedSemester={settings.activeSemester}
+                                subjectName={selectedSubject} // PASS SELECTED SUBJECT HERE
                                 activeFieldsMap={getActiveFieldsMap()}
                                 visibleChapters={getVisibleChapters()}
                                 visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig}
@@ -1286,7 +1287,7 @@ const App: React.FC = () => {
                      </div>
                  )}
 
-                 {activeTab === 'settings' && (
+                 {activeTab === 'settings' && userRole === 'admin' && (
                      <SettingsView 
                         settings={settings}
                         teachers={teachers}

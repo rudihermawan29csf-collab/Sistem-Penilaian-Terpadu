@@ -1,12 +1,13 @@
 
 import React, { useState } from 'react';
-import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession, UpRange } from '../types';
-import { calculateChapterAverage, calculateFinalGrade, formatNumber } from '../utils';
+import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession, UpRange, SemesterData } from '../types';
+import { calculateChapterAverage, calculateFinalGrade, formatNumber, createEmptySemesterData } from '../utils';
 import { Info, X, Calendar, FileText, Tag, BookOpen, Star } from 'lucide-react';
 
 interface GradeTableProps {
   students: Student[];
   selectedSemester: SemesterKey;
+  subjectName: string; // Added prop to identify current subject context
   activeFieldsMap: Record<ChapterKey, FormativeKey[]>;
   visibleChapters: Record<ChapterKey, boolean>;
   visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>;
@@ -21,6 +22,7 @@ interface GradeTableProps {
 const GradeTable: React.FC<GradeTableProps> = ({
   students,
   selectedSemester,
+  subjectName,
   activeFieldsMap,
   visibleChapters,
   visibleFields,
@@ -49,6 +51,10 @@ const GradeTable: React.FC<GradeTableProps> = ({
     if (chapter === 'up') return true; 
 
     return assessmentHistory.some(h => {
+        // STRICT CHECK: Ensure history matches current subject context
+        const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
+        if (historySubject !== subjectName) return false;
+
         if (h.type === 'bab') return h.chapterKey === chapter && h.formativeKey === field;
         if (h.type === 'kts') return chapter === 'kts';
         if (h.type === 'sas') return chapter === 'sas';
@@ -58,6 +64,10 @@ const GradeTable: React.FC<GradeTableProps> = ({
 
   const getSessionForHeader = (chapter: ChapterKey | 'kts' | 'sas', field: FormativeKey | null) => {
       return assessmentHistory.find(h => {
+        // STRICT CHECK: Ensure history matches current subject context
+        const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
+        if (historySubject !== subjectName) return undefined;
+
         if (h.type === 'bab') return h.chapterKey === chapter && h.formativeKey === field;
         if (h.type === 'kts') return chapter === 'kts';
         if (h.type === 'sas') return chapter === 'sas';
@@ -96,17 +106,23 @@ const GradeTable: React.FC<GradeTableProps> = ({
       return standardFields;
   };
 
+  // --- Helper to get correct grades object based on subject ---
+  const getStudentGrades = (student: Student): SemesterData => {
+      if (subjectName === 'Pendidikan Agama Islam') {
+          return student.grades[selectedSemester];
+      } else {
+          return student.gradesBySubject?.[subjectName]?.[selectedSemester] || createEmptySemesterData();
+      }
+  };
+
   // --- Dynamic Header Colors ---
   const getHeaderStyle = (type: 'TP' | 'EVAL' | 'UP' | 'NA', index: number = 0) => {
-      if (showUpColumn && type !== 'UP') return "bg-orange-600 border-orange-500"; // Fallback if UP Mode is active but logic below overrides it specific columns
+      if (showUpColumn && type !== 'UP') return "bg-orange-600 border-orange-500"; 
 
       if (type === 'UP') return "bg-orange-700 border-orange-600";
-      if (type === 'EVAL') return "bg-slate-700 border-slate-600"; // Dark Grey for Evaluasi Akhir
+      if (type === 'EVAL') return "bg-slate-700 border-slate-600"; 
       if (type === 'NA') return "bg-slate-800 border-slate-700";
       
-      // Alternating Colors for TPs
-      // Index 0 (TP1) -> Blue
-      // Index 1 (TP2) -> Indigo / Teal
       return index % 2 === 0 
         ? "bg-blue-600 border-blue-500" 
         : "bg-teal-600 border-teal-500";
@@ -119,13 +135,12 @@ const GradeTable: React.FC<GradeTableProps> = ({
             : "bg-slate-700 text-slate-100 border-slate-600";
       }
       
-      // TP Subheaders inherit from parent TP color but lighter/darker based on activity
       const isEven = index % 2 === 0;
-      if (isEven) { // Blue Theme
+      if (isEven) { 
           return isActive 
             ? "bg-blue-800 text-white hover:bg-blue-900 border-blue-500" 
             : "bg-blue-600 text-blue-100 border-blue-500";
-      } else { // Teal Theme
+      } else { 
           return isActive 
             ? "bg-teal-800 text-white hover:bg-teal-900 border-teal-500" 
             : "bg-teal-600 text-teal-100 border-teal-500";
@@ -145,6 +160,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
                     <button onClick={() => setSelectedSession(null)} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={20} /></button>
                 </div>
                 <div className="space-y-3 text-sm text-gray-600">
+                    <p><strong>Mapel:</strong> {subjectName}</p>
                     <p><strong>Target:</strong> {selectedSession.type === 'bab' ? `${selectedSession.chapterKey?.replace('bab', 'TP ')} - ${selectedSession.formativeKey?.toUpperCase()}` : selectedSession.type.toUpperCase()}</p>
                     <p><strong>Tanggal:</strong> {selectedSession.date}</p>
                     <p className="bg-gray-50 p-2 rounded-lg border border-gray-100 italic">"{selectedSession.description}"</p>
@@ -209,7 +225,8 @@ const GradeTable: React.FC<GradeTableProps> = ({
           
           <tbody className="bg-white">
              {students.map((student, index) => {
-                const semesterData = student.grades[selectedSemester];
+                // DYNAMIC FETCH BASED ON SUBJECT NAME
+                const semesterData = getStudentGrades(student);
                 const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
                 
                 let displayUp: number | null = semesterData.nilaiUp;
