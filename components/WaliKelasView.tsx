@@ -14,6 +14,8 @@ interface WaliKelasViewProps {
   assessmentHistory?: GradingSession[];
   dailyAttendance: DailyAttendanceLog[];
   onSaveDailyAttendance?: (log: DailyAttendanceLog) => void;
+  userRole?: string;
+  userData?: any;
 }
 
 const WaliKelasView: React.FC<WaliKelasViewProps> = ({ 
@@ -24,7 +26,9 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
     settings,
     assessmentHistory = [],
     dailyAttendance = [],
-    onSaveDailyAttendance
+    onSaveDailyAttendance,
+    userRole,
+    userData
 }) => {
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'attendance' | 'monitoring' | 'history' | 'input_izin' | 'rekap_bulanan'>('attendance');
@@ -48,7 +52,25 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
   // Monthly Rekap State
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
-  const availableClasses = useMemo(() => Array.from(new Set(students.map(s => s.kelas))).sort(), [students]);
+  // Available Classes Logic
+  const availableClasses = useMemo(() => {
+      // If Admin, all classes
+      if (!userRole || userRole === 'admin') {
+          return Array.from(new Set(students.map(s => s.kelas))).sort();
+      }
+      // If Teacher (Wali Kelas), only their assigned class
+      if (userRole === 'teacher' && userData?.waliKelas) {
+          return [userData.waliKelas];
+      }
+      return [];
+  }, [students, userRole, userData]);
+
+  // Set default selected class for Wali Kelas
+  useEffect(() => {
+      if (userRole === 'teacher' && userData?.waliKelas) {
+          setSelectedClass(userData.waliKelas);
+      }
+  }, [userRole, userData]);
 
   const filteredStudents = useMemo(() => {
     return students.filter(s => s.kelas === selectedClass).sort((a, b) => a.name.localeCompare(b.name));
@@ -829,6 +851,9 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
                 <Users size={64} className="mb-4 opacity-20" />
                 <p>Silakan pilih kelas terlebih dahulu.</p>
+                {userRole === 'teacher' && !userData?.waliKelas && (
+                    <p className="text-xs text-red-400 mt-2">Anda tidak terdaftar sebagai Wali Kelas di sistem.</p>
+                )}
             </div>
         ) : (
             <>

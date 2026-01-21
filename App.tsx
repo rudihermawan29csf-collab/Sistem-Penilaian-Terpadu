@@ -25,11 +25,11 @@ import ExtraActivityView from './components/ExtraActivityView';
 import ClassAttendanceView from './components/ClassAttendanceView';
 import SettingsView from './components/SettingsView';
 import MidSemesterReportView from './components/MidSemesterReportView';
-import GuideModal from './components/GuideModal'; // Import GuideModal
+import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,24 +37,25 @@ import * as XLSX from 'xlsx';
 import { calculateFinalGrade } from './utils';
 
 // --- Sidebar Components ---
-const SectionLabel = ({ label }: { label: string }) => (
-  <div className="px-3 py-2 text-xs font-bold text-indigo-300/70 uppercase tracking-wider mt-4 first:mt-2">
+const SectionLabel = ({ label, collapsed }: { label: string, collapsed?: boolean }) => (
+  <div className={`px-3 py-2 text-xs font-bold text-indigo-300/70 uppercase tracking-wider mt-4 first:mt-2 transition-opacity duration-200 ${collapsed ? 'opacity-0 h-0 overflow-hidden py-0 mt-0' : 'opacity-100'}`}>
     {label}
   </div>
 );
 
-const SidebarItem = ({ id, label, icon: Icon, active, onClick }: { id: string, label: string, icon: React.ElementType, active: boolean, onClick: () => void }) => (
+const SidebarItem = ({ id, label, icon: Icon, active, onClick, collapsed }: { id: string, label: string, icon: React.ElementType, active: boolean, onClick: () => void, collapsed?: boolean }) => (
   <button 
     onClick={onClick}
-    className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
+    title={collapsed ? label : ''}
+    className={`w-full flex items-center ${collapsed ? 'justify-center px-0' : 'space-x-3 px-3'} py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
         active 
         ? 'bg-white/10 text-white shadow-sm border border-white/10' 
         : 'text-indigo-100 hover:bg-white/5 hover:text-white'
     }`}
   >
-    <Icon size={18} className={`transition-transform duration-200 ${active ? 'scale-110 text-white' : 'text-indigo-300 group-hover:text-white'}`} />
-    <span>{label}</span>
-    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>}
+    <Icon size={20} className={`transition-transform duration-200 ${active ? 'text-white' : 'text-indigo-300 group-hover:text-white'} ${collapsed ? '' : active ? 'scale-110' : ''}`} />
+    {!collapsed && <span>{label}</span>}
+    {active && !collapsed && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>}
   </button>
 );
 
@@ -95,7 +96,6 @@ const defaultSettings: AppSettings = {
       { min: 91, max: 95, value: 96 },
       { min: 96, max: 100, value: 98 }
   ],
-  // Updated P5 Structure
   kokurikulerProjects: {
       ganjil: [{ theme: "Gaya Hidup Berkelanjutan", description: "Projek pembuatan kompos dari sampah organik sekolah." }],
       genap: [{ theme: "Kearifan Lokal", description: "Eksplorasi budaya Majapahit." }]
@@ -128,9 +128,10 @@ const App: React.FC = () => {
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [showSaveSuccess, setShowSaveSuccess] = useState(false); // For Save Button
-  const [isGuideOpen, setIsGuideOpen] = useState(false); // Guide Modal State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile toggle
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Desktop minimize
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   
   // Teacher/View Context State
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -153,7 +154,6 @@ const App: React.FC = () => {
         if (data.teachers) setTeachers(data.teachers);
         if (data.history) setAssessmentHistory(data.history);
         if (data.settings) {
-            // Migration for old data structure if needed
             let loadedSettings = data.settings;
             if (Array.isArray(loadedSettings.kokurikulerProjects)) {
                 loadedSettings.kokurikulerProjects = {
@@ -161,7 +161,6 @@ const App: React.FC = () => {
                     genap: []
                 };
             }
-            // Migration for midSemesterDate string -> object
             if (typeof loadedSettings.midSemesterDate === 'string') {
                 loadedSettings.midSemesterDate = {
                     ganjil: loadedSettings.midSemesterDate,
@@ -182,16 +181,16 @@ const App: React.FC = () => {
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
     setUserRole(role);
-    // Show guide automatically on first login (could be enhanced with local storage check)
-    // setIsGuideOpen(true); 
     
     if (role === 'teacher') {
         const teacher = teachers.find(t => t.name === data.name);
         if (teacher) {
             setUserData(teacher);
             setSelectedSubject(teacher.subject);
+            // Default selected class to first one they teach
             if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
         } else {
+            // Fallback
             setUserData({ 
                 name: data.name, 
                 classes: [], 
@@ -202,7 +201,6 @@ const App: React.FC = () => {
         setActiveTab('dashboard'); 
     } else if (role === 'admin') {
         setUserData({ name: 'Administrator' });
-        // Set default selection for Admin to avoid empty state issues which cause filters to fail
         setSelectedSubject('Pendidikan Agama Islam');
         if (students.length > 0) {
              const uniqueClasses = Array.from(new Set(students.map(s => s.kelas))).sort();
@@ -734,63 +732,76 @@ const App: React.FC = () => {
     <div className="h-screen bg-[#f5f5f7] flex overflow-hidden font-sans text-gray-900">
         
         {/* Sidebar - Dark Indigo Theme */}
-        <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
+        <div className={`fixed inset-y-0 left-0 z-50 ${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
             
-            <div className="p-5">
+            <div className={`p-5 ${isSidebarCollapsed ? 'flex flex-col items-center' : ''}`}>
                 {/* macOS Window Controls */}
-                <div className="flex items-center gap-2 mb-6 group">
-                    <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e] opacity-80 group-hover:opacity-100"></div>
-                    <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-[#d89e24] opacity-80 group-hover:opacity-100"></div>
-                    <div className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29] opacity-80 group-hover:opacity-100"></div>
-                </div>
+                {!isSidebarCollapsed && (
+                    <div className="flex items-center gap-2 mb-6 group">
+                        <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e] opacity-80 group-hover:opacity-100"></div>
+                        <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-[#d89e24] opacity-80 group-hover:opacity-100"></div>
+                        <div className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29] opacity-80 group-hover:opacity-100"></div>
+                    </div>
+                )}
 
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-purple-900/50">
+                <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center mb-6' : 'justify-between'}`}>
+                    <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'flex-col' : ''}`}>
+                        <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-purple-900/50 shrink-0">
                             <School size={20} />
                         </div>
-                        <div>
-                            <h1 className="text-sm font-bold tracking-tight text-white leading-tight">iGrade</h1>
-                            <p className="text-[10px] text-indigo-300 font-medium">{userRole === 'admin' ? 'Administrator' : 'Guru Mapel'}</p>
-                        </div>
+                        {!isSidebarCollapsed && (
+                            <div>
+                                <h1 className="text-sm font-bold tracking-tight text-white leading-tight">iGrade</h1>
+                                <p className="text-[10px] text-indigo-300 font-medium">{userRole === 'admin' ? 'Administrator' : 'Guru Mapel'}</p>
+                            </div>
+                        )}
                     </div>
                     <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-indigo-300 hover:text-white"><X size={20} /></button>
                 </div>
             </div>
             
-            <nav className="px-3 py-2 flex-1">
-                <SectionLabel label="Menu Utama" />
-                <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} />
-                <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} />
+            <nav className={`px-3 py-2 flex-1 overflow-x-hidden ${isSidebarCollapsed ? 'items-center' : ''}`}>
+                <SectionLabel label="Menu Utama" collapsed={isSidebarCollapsed} />
+                <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} collapsed={isSidebarCollapsed} />
+                <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} collapsed={isSidebarCollapsed} />
                 
-                <SectionLabel label="Tugas Tambahan" />
-                <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
-                <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
+                <SectionLabel label="Tugas Tambahan" collapsed={isSidebarCollapsed} />
+                {/* WALI KELAS MENU (Only if assigned) */}
+                {(userRole === 'admin' || (userRole === 'teacher' && userData?.waliKelas)) && (
+                    <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} collapsed={isSidebarCollapsed} />
+                )}
+                {/* EXTRA MENU (Only if Coach) */}
+                {(userRole === 'admin' || (userRole === 'teacher' && settings.extracurriculars.some(e => e.coach === userData?.name))) && (
+                    <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} collapsed={isSidebarCollapsed} />
+                )}
                 
-                <SectionLabel label="Monitoring" />
-                <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
-                <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
+                <SectionLabel label="Monitoring" collapsed={isSidebarCollapsed} />
+                <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} collapsed={isSidebarCollapsed} />
+                <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} collapsed={isSidebarCollapsed} />
                 
-                <SectionLabel label="Laporan" />
-                <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                <SectionLabel label="Laporan" collapsed={isSidebarCollapsed} />
+                <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} collapsed={isSidebarCollapsed} />
                 
-                <SectionLabel label="Sistem" />
-                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
+                <SectionLabel label="Sistem" collapsed={isSidebarCollapsed} />
+                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} collapsed={isSidebarCollapsed} />
                 
                 {userRole === 'admin' && (
                     <>
-                        <SectionLabel label="Admin Master" />
-                        <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} />
-                        <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} />
-                        <SidebarItem id="monitor_teachers" label="Monitor Guru" icon={ClipboardList} active={activeTab === 'monitor_teachers'} onClick={() => handleSidebarClick('monitor_teachers')} />
-                        <SidebarItem id="reset" label="Reset Data" icon={Database} active={activeTab === 'reset'} onClick={() => handleSidebarClick('reset')} />
+                        <SectionLabel label="Admin Master" collapsed={isSidebarCollapsed} />
+                        <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} collapsed={isSidebarCollapsed} />
+                        <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} collapsed={isSidebarCollapsed} />
+                        <SidebarItem id="monitor_teachers" label="Monitor Guru" icon={ClipboardList} active={activeTab === 'monitor_teachers'} onClick={() => handleSidebarClick('monitor_teachers')} collapsed={isSidebarCollapsed} />
+                        <SidebarItem id="reset" label="Reset Data" icon={Database} active={activeTab === 'reset'} onClick={() => handleSidebarClick('reset')} collapsed={isSidebarCollapsed} />
                     </>
                 )}
             </nav>
 
-            <div className="p-4 border-t border-white/5 bg-black/20">
-                <button onClick={handleLogout} className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-transparent border border-indigo-700/50 hover:bg-red-500/20 hover:border-red-500/50 text-indigo-200 hover:text-red-200 rounded-lg transition-all text-xs font-bold shadow-sm active:scale-95">
-                    <LogOut size={14} /><span>Keluar Aplikasi</span>
+            <div className="p-4 border-t border-white/5 bg-black/20 flex flex-col gap-2">
+                <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="hidden lg:flex w-full items-center justify-center p-2 bg-transparent text-indigo-300 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
+                    {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+                </button>
+                <button onClick={handleLogout} title={isSidebarCollapsed ? "Keluar Aplikasi" : ""} className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-0' : 'justify-center space-x-2 px-4'} py-2 bg-transparent border border-indigo-700/50 hover:bg-red-500/20 hover:border-red-500/50 text-indigo-200 hover:text-red-200 rounded-lg transition-all text-xs font-bold shadow-sm active:scale-95`}>
+                    <LogOut size={16} />{!isSidebarCollapsed && <span>Keluar Aplikasi</span>}
                 </button>
             </div>
         </div>
@@ -853,9 +864,14 @@ const App: React.FC = () => {
                                     onChange={e => setSelectedSubject(e.target.value)}
                                     className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
                                 >
-                                    {userData?.subject && <option value={userData.subject}>{userData.subject}</option>}
-                                    <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
-                                    {userRole === 'admin' && teachers.map(t => t.subject).filter((v,i,a) => a.indexOf(v)===i).map(s => <option key={s} value={s}>{s}</option>)}
+                                    {userRole === 'teacher' && userData?.subject ? (
+                                        <option value={userData.subject}>{userData.subject}</option>
+                                    ) : (
+                                        <>
+                                            <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
+                                            {teachers.map(t => t.subject).filter((v,i,a) => a.indexOf(v)===i).map(s => <option key={s} value={s}>{s}</option>)}
+                                        </>
+                                    )}
                                 </select>
 
                                 {activeTab === 'dashboard' && (
@@ -930,6 +946,8 @@ const App: React.FC = () => {
                             assessmentHistory={assessmentHistory}
                             dailyAttendance={dailyAttendance}
                             onSaveDailyAttendance={handleSaveDailyAttendance}
+                            userRole={userRole}
+                            userData={userData}
                         />
                      </div>
                  )}
@@ -945,6 +963,8 @@ const App: React.FC = () => {
                             onUpdateSettings={handleSaveSettings}
                             dailyAttendance={dailyAttendance}
                             onSaveDailyAttendance={handleSaveDailyAttendance}
+                            userRole={userRole}
+                            userData={userData}
                         />
                      </div>
                  )}
