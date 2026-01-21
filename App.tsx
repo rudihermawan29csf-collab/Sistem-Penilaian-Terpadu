@@ -25,10 +25,11 @@ import ExtraActivityView from './components/ExtraActivityView';
 import ClassAttendanceView from './components/ClassAttendanceView';
 import SettingsView from './components/SettingsView';
 import MidSemesterReportView from './components/MidSemesterReportView';
+import GuideModal from './components/GuideModal'; // Import GuideModal
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -129,6 +130,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false); // For Save Button
+  const [isGuideOpen, setIsGuideOpen] = useState(false); // Guide Modal State
   
   // Teacher/View Context State
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -180,6 +182,8 @@ const App: React.FC = () => {
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
     setUserRole(role);
+    // Show guide automatically on first login (could be enhanced with local storage check)
+    // setIsGuideOpen(true); 
     
     if (role === 'teacher') {
         const teacher = teachers.find(t => t.name === data.name);
@@ -687,7 +691,7 @@ const App: React.FC = () => {
   // Leader View
   if (userRole === 'leader' && userData) {
       return (
-          <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans">
+          <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans relative">
                <div className="bg-white/80 backdrop-blur-xl px-6 py-4 border-b border-gray-200/50 flex justify-between items-center sticky top-0 z-20 shadow-sm">
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                          <div className="bg-blue-100 p-1.5 rounded-lg"><ClipboardList className="text-[#007aff]" size={20} /></div>
@@ -705,6 +709,16 @@ const App: React.FC = () => {
                     dailyAttendance={dailyAttendance}
                     onSaveAttendance={handleSaveDailyAttendance}
                />
+               
+               {/* Leader Help Button */}
+               <button 
+                  onClick={() => setIsGuideOpen(true)}
+                  className="fixed bottom-6 right-6 p-3 bg-teal-600 text-white rounded-full shadow-xl hover:bg-teal-700 transition-transform hover:scale-110 z-50 animate-bounce-slow"
+                  title="Panduan"
+               >
+                  <HelpCircle size={24} />
+               </button>
+               <GuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} role="leader" />
           </div>
       );
   }
@@ -1026,6 +1040,16 @@ const App: React.FC = () => {
                         onResetClass={handleResetClass}
                      />
                  )}
+
+                 {/* Help Button */}
+                 <button 
+                    onClick={() => setIsGuideOpen(true)}
+                    className="absolute bottom-6 right-6 p-3 bg-indigo-600 text-white rounded-full shadow-xl hover:bg-indigo-700 transition-transform hover:scale-110 z-50 animate-bounce-slow"
+                    title="Panduan Aplikasi"
+                 >
+                    <HelpCircle size={24} />
+                 </button>
+                 {userRole && <GuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} role={userRole} />}
 
              </main>
         </div>

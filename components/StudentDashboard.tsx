@@ -2,8 +2,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, SemesterKey, ChapterKey, GradingSession, FormativeKey, AppSettings, Teacher, SemesterData, DailyAttendanceLog } from '../types';
 import { calculateChapterAverage, calculateFinalGrade, createEmptySemesterData } from '../utils';
-import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList, TrendingUp, Eye, CalendarRange } from 'lucide-react';
+import { LogOut, ChevronDown, Award, BookOpen, Calendar, PieChart, Info, AlertCircle, RefreshCw, Clock, Book, User, LayoutDashboard, ListChecks, AlertTriangle, FileText, CheckCircle, ClipboardList, TrendingUp, Eye, CalendarRange, HelpCircle } from 'lucide-react';
 import MidSemesterReportView from './MidSemesterReportView';
+import GuideModal from './GuideModal';
 
 interface StudentDashboardProps {
   student: Student;
@@ -29,6 +30,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // Set default tab to 'summary' (Rekap Nilai)
   const [activeTab, setActiveTab] = useState<'detail' | 'summary' | 'tanggungan' | 'remidi' | 'rapor_sisipan' | 'attendance'>('summary');
   const [selectedSemester, setSelectedSemester] = useState<SemesterKey>(settings.activeSemester);
+  const [isGuideOpen, setIsGuideOpen] = useState(false); // Guide State
   
   // Attendance Filter State
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
@@ -659,7 +661,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans">
+    <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans relative">
       {/* Header */}
       <div className="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 px-4 py-4 shadow-sm">
         <div className="max-w-3xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -752,6 +754,17 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
           )}
       </div>
+
+      {/* Student Help Button */}
+      <button 
+        onClick={() => setIsGuideOpen(true)}
+        className="fixed bottom-6 right-6 p-3 bg-blue-600 text-white rounded-full shadow-xl hover:bg-blue-700 transition-transform hover:scale-110 z-50 animate-bounce-slow"
+        title="Panduan Siswa"
+      >
+        <HelpCircle size={24} />
+      </button>
+      <GuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} role="student" />
+
     </div>
   );
 };
