@@ -399,9 +399,13 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
 
   const toggleSelectAll = () => {
       if (selectedStudentIds.length === studentsInModalClass.length) {
-          setSelectedStudentIds([]);
+          // Deselect students ONLY from the current class view, keep others
+          const currentClassIds = studentsInModalClass.map(s => s.id);
+          setSelectedStudentIds(prev => prev.filter(id => !currentClassIds.includes(id)));
       } else {
-          setSelectedStudentIds(studentsInModalClass.map(s => s.id));
+          // Select all from current class + keep existing
+          const currentClassIds = studentsInModalClass.map(s => s.id);
+          setSelectedStudentIds(prev => [...Array.from(new Set([...prev, ...currentClassIds]))]);
       }
   };
 
@@ -462,7 +466,20 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
             {mainTab === 'grading' && (
                 <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm animate-scale-in flex flex-col h-full">
                     <div className="bg-purple-50 px-6 py-3 border-b border-purple-100 flex justify-between items-center shrink-0">
-                        <h3 className="font-bold text-purple-800">{localEnrolledStudents.length} Peserta Terdaftar</h3>
+                        <div className="flex items-center gap-4">
+                            <h3 className="font-bold text-purple-800">{localEnrolledStudents.length} Peserta Terdaftar</h3>
+                            <button 
+                                onClick={() => {
+                                    setModalClass(availableClasses[0] || '');
+                                    setSelectedStudentIds([]);
+                                    setStudentSearchTerm('');
+                                    setIsModalOpen(true);
+                                }}
+                                className="flex items-center gap-1 text-xs bg-white text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 font-bold hover:bg-purple-100 transition-colors shadow-sm"
+                            >
+                                <UserPlus size={14} /> Tambah Siswa
+                            </button>
+                        </div>
                         
                         {/* Coach Info */}
                         {userRole === 'admin' ? (
@@ -587,6 +604,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
             {/* --- ATTENDANCE TAB --- */}
             {mainTab === 'attendance' && (
                 <div className="space-y-6 animate-scale-in">
+                    {/* ... (Previous Attendance Content) ... */}
                     {/* Sub Navigation */}
                     <div className="flex gap-2 border-b border-gray-200 pb-2 overflow-x-auto">
                         <button 
@@ -956,12 +974,12 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
       {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
-                  <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                  <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-[#f9f9fb] shrink-0">
                       <h3 className="font-bold text-lg text-gray-800">Tambah Anggota {selectedExtra}</h3>
                       <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
                   </div>
                   
-                  <div className="p-4 border-b border-gray-100 bg-gray-50 flex gap-2">
+                  <div className="p-4 border-b border-gray-100 bg-white flex gap-2 shrink-0">
                       <select 
                           value={modalClass}
                           onChange={(e) => setModalClass(e.target.value)}
@@ -981,7 +999,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                       </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-2">
+                  <div className="flex-1 overflow-y-auto p-2 bg-gray-50/50">
                       {modalClass ? (
                           studentsInModalClass.length > 0 ? (
                               <div className="space-y-1">
@@ -992,16 +1010,15 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                                           onChange={toggleSelectAll}
                                           className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                                       />
-                                      <span className="text-xs font-bold text-gray-500 uppercase">Pilih Semua</span>
+                                      <span className="text-xs font-bold text-gray-500 uppercase">Pilih Semua (Kelas {modalClass})</span>
                                   </div>
                                   {studentsInModalClass.map(s => {
                                       const isEnrolled = s.extracurricularRecord?.[semester]?.some(e => e.activityName === selectedExtra);
-                                      // Also check local state for newly added but not saved yet
                                       const isLocallyEnrolled = localEnrolledStudents.some(le => le.id === s.id);
                                       const disabled = isEnrolled || isLocallyEnrolled;
 
                                       return (
-                                          <div key={s.id} className={`flex items-center gap-3 px-4 py-2 rounded-lg ${disabled ? 'opacity-50' : 'hover:bg-purple-50'}`}>
+                                          <div key={s.id} className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${disabled ? 'opacity-50' : 'hover:bg-purple-50'}`}>
                                               <input 
                                                   type="checkbox" 
                                                   checked={selectedStudentIds.includes(s.id) || disabled}
@@ -1009,8 +1026,8 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                                                   disabled={disabled}
                                                   className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                                               />
-                                              <div>
-                                                  <p className="text-sm font-medium text-gray-800">{s.name} {disabled && <span className="text-xs text-green-600 font-bold">(Sudah Terdaftar)</span>}</p>
+                                              <div className="flex-1">
+                                                  <p className="text-sm font-medium text-gray-800">{s.name} {disabled && <span className="text-[10px] text-green-600 font-bold ml-1">(Sudah Ada)</span>}</p>
                                                   <p className="text-xs text-gray-500">{s.nis}</p>
                                               </div>
                                           </div>
@@ -1018,22 +1035,27 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                                   })}
                               </div>
                           ) : (
-                              <div className="text-center py-8 text-gray-400 text-sm">Tidak ada siswa ditemukan.</div>
+                              <div className="text-center py-8 text-gray-400 text-sm">Tidak ada siswa ditemukan di kelas ini.</div>
                           )
                       ) : (
                           <div className="text-center py-12 text-gray-400 text-sm">Silakan pilih kelas terlebih dahulu.</div>
                       )}
                   </div>
 
-                  <div className="p-4 border-t border-gray-100 flex justify-end gap-2">
-                      <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm font-medium">Batal</button>
-                      <button 
-                          onClick={handleAddStudent}
-                          disabled={selectedStudentIds.length === 0}
-                          className="px-6 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 shadow-sm disabled:opacity-50"
-                      >
-                          Tambahkan ({selectedStudentIds.length})
-                      </button>
+                  <div className="p-4 border-t border-gray-100 bg-white flex justify-between items-center gap-2 shrink-0">
+                      <div className="text-xs text-gray-500 font-medium">
+                          {selectedStudentIds.length} siswa dipilih
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm font-medium">Batal</button>
+                          <button 
+                              onClick={handleAddStudent}
+                              disabled={selectedStudentIds.length === 0}
+                              className="px-6 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 shadow-sm disabled:opacity-50"
+                          >
+                              Tambahkan
+                          </button>
+                      </div>
                   </div>
               </div>
           </div>
