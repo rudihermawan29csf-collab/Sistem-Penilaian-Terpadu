@@ -22,12 +22,12 @@ export const createEmptySemesterData = (): SemesterData => {
 export const getActiveFields = (students: Student[], semester: SemesterKey, chapter: ChapterKey): FormativeKey[] => {
   const allFields: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
   return allFields.filter(field => 
-    students.some(s => s.grades[semester]?.[chapter]?.[field] !== null)
+    students.some(s => s.grades?.[semester]?.[chapter]?.[field] !== null && s.grades?.[semester]?.[chapter]?.[field] !== undefined)
   );
 };
 
 export const calculateChapterAverage = (grades: ChapterGrades | undefined | null, activeFields: FormativeKey[]): number | null => {
-  // If grades object is missing or no fields are active, return null
+  // If no fields are active in the class configuration or grades is undefined, return null
   if (!grades || activeFields.length === 0) return null;
 
   let total = 0;
@@ -66,6 +66,7 @@ export const calculateFinalGrade = (
   // 1. Process Chapters Averages
   chaptersToCalculate.forEach(chap => {
     const activeFields = activeFieldsMap[chap];
+    // Safe access via calculateChapterAverage handling
     const avg = calculateChapterAverage(semesterData[chap], activeFields);
     
     if (avg !== null) {

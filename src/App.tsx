@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
@@ -28,12 +29,12 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, Loader2
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { calculateFinalGrade } from './utils';
+import { calculateFinalGrade, createEmptySemesterData } from './utils';
 
 // --- Sidebar Components ---
 const SectionLabel = ({ label }: { label: string }) => (
@@ -109,9 +110,8 @@ const defaultSettings: AppSettings = {
   extracurriculars: []
 };
 
-export const App: React.FC = () => {
+const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [isDataLoaded, setIsDataLoaded] = useState(false); // Safety flag
   const [userRole, setUserRole] = useState<'admin' | 'teacher' | 'student' | 'leader' | null>(null);
   const [userData, setUserData] = useState<any>(null);
 
@@ -129,7 +129,6 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false); // Sync loading state
   
   // Teacher/View Context State
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -144,25 +143,17 @@ export const App: React.FC = () => {
   
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  const availableClassOptions = useMemo(() => {
-      if (userData?.classes?.length > 0) {
-          return userData.classes;
-      }
-      return Array.from(new Set(students.map(s => s.kelas))).sort();
-  }, [userData, students]);
-
   // --- INITIALIZATION ---
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       const data = await api.fetchInitialData();
       if (data) {
-        if (data.students && data.students.length > 0) setStudents(data.students);
+        if (data.students) setStudents(data.students);
         if (data.teachers) setTeachers(data.teachers);
         if (data.history) setAssessmentHistory(data.history);
         if (data.settings) {
             let loadedSettings = data.settings;
-            // Prevent crash if some settings are missing
             if (Array.isArray(loadedSettings.kokurikulerProjects)) {
                 loadedSettings.kokurikulerProjects = {
                     ganjil: loadedSettings.kokurikulerProjects,
@@ -175,49 +166,16 @@ export const App: React.FC = () => {
                     genap: loadedSettings.midSemesterDate
                 };
             }
-            // Fix potential undefined maps
-            if (!loadedSettings.waliKelasMap) loadedSettings.waliKelasMap = {};
-            if (!loadedSettings.visibleChapters) loadedSettings.visibleChapters = defaultSettings.visibleChapters;
-            if (!loadedSettings.midSemesterFieldConfig) loadedSettings.midSemesterFieldConfig = defaultSettings.midSemesterFieldConfig;
-
             setSettings(prev => ({ ...prev, ...loadedSettings }));
         }
         if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
         if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
         if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
-        
-        setIsDataLoaded(true);
-      } else {
-        console.error("Gagal memuat data dari server. Menggunakan data default (Bahaya untuk Sync).");
       }
       setLoading(false);
     };
     loadData();
   }, []);
-
-  // --- ACCESS CONTROL LOGIC (CRITICAL FOR VISIBILITY) ---
-  const currentTeacher = useMemo(() => {
-      if (userRole === 'teacher' && userData) {
-          // Find latest teacher data from state by name to get fresh assignments
-          return teachers.find(t => t.name === userData.name) || userData;
-      }
-      return null;
-  }, [userRole, userData, teachers]);
-
-  const canAccessWaliKelas = useMemo(() => {
-      if (userRole === 'admin') return true;
-      if (currentTeacher?.waliKelas && currentTeacher.waliKelas.length > 0) return true;
-      return false;
-  }, [userRole, currentTeacher]);
-
-  const canAccessExtra = useMemo(() => {
-      if (userRole === 'admin') return true;
-      if (currentTeacher) {
-          const extras = settings.extracurriculars || [];
-          return extras.some(ex => ex.coach === currentTeacher.name);
-      }
-      return false;
-  }, [userRole, currentTeacher, settings.extracurriculars]);
 
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
@@ -227,9 +185,7 @@ export const App: React.FC = () => {
         if (teacher) {
             setUserData(teacher);
             setSelectedSubject(teacher.subject);
-            // Auto-select their class if they are Wali Kelas, otherwise first class
-            if (teacher.waliKelas) setSelectedClass(teacher.waliKelas);
-            else if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
+            if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
         } else {
             setUserData({ name: data.name, classes: [], subject: 'Mapel Umum', nip: '-' }); 
         }
@@ -258,61 +214,43 @@ export const App: React.FC = () => {
   const handleUpdateScore = async (id: number, chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null, value: number | null) => {
     setStudents(prev => prev.map(student => {
       if (student.id === id) {
-        const newGrades = { ...student.grades };
-        const isPAI = selectedSubject === 'Pendidikan Agama Islam';
-        let targetSemesterData: any;
+        // Ensure gradesBySubject exists
+        if (!student.gradesBySubject) student.gradesBySubject = {};
         
-        if (isPAI) {
-            // Ensure semester structure exists
-            if (!newGrades[settings.activeSemester]) {
-                // Initialize if missing
-                newGrades[settings.activeSemester] = {
-                    bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    kts: null, sas: null, nilaiUp: null
-                };
-            }
-            targetSemesterData = { ...newGrades[settings.activeSemester] };
-        } else {
-            if (!student.gradesBySubject) student.gradesBySubject = {};
-            if (!student.gradesBySubject[selectedSubject]) {
-                student.gradesBySubject[selectedSubject] = {
-                    ganjil: { bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, kts: null, sas: null, nilaiUp: null },
-                    genap: { bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, kts: null, sas: null, nilaiUp: null }
-                };
-            }
-            if (!student.gradesBySubject[selectedSubject][settings.activeSemester]) {
-                 student.gradesBySubject[selectedSubject][settings.activeSemester] = {
-                    bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-                    kts: null, sas: null, nilaiUp: null
-                };
-            }
-            targetSemesterData = { ...student.gradesBySubject[selectedSubject][settings.activeSemester] };
+        // Ensure subject exists in gradesBySubject (Unified Logic for all subjects)
+        if (!student.gradesBySubject[selectedSubject]) {
+             student.gradesBySubject[selectedSubject] = {
+                 ganjil: createEmptySemesterData(),
+                 genap: createEmptySemesterData()
+             };
         }
+        
+        // Ensure semester exists
+        if (!student.gradesBySubject[selectedSubject][settings.activeSemester]) {
+            student.gradesBySubject[selectedSubject][settings.activeSemester] = createEmptySemesterData();
+        }
+
+        const targetSemesterData = { ...student.gradesBySubject[selectedSubject][settings.activeSemester] };
 
         if (chapter === 'kts') targetSemesterData.kts = value;
         else if (chapter === 'sas') targetSemesterData.sas = value;
         else if (chapter === 'up') targetSemesterData.nilaiUp = value;
         else if (field) {
-            // Ensure chapter object exists
+            // CRITICAL FIX: Ensure chapter object exists before assigning field
             if (!targetSemesterData[chapter]) {
                 targetSemesterData[chapter] = { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null };
             }
             targetSemesterData[chapter][field] = value;
         }
 
-        if (isPAI) {
-            newGrades[settings.activeSemester] = targetSemesterData;
-            student.grades = newGrades;
-        } else {
-            student.gradesBySubject![selectedSubject][settings.activeSemester] = targetSemesterData;
+        // Update gradesBySubject (Unified storage)
+        student.gradesBySubject[selectedSubject][settings.activeSemester] = targetSemesterData;
+        
+        // Backward compatibility for PAI: also sync to root grades for now
+        // This ensures safety if any legacy component relies on root grades
+        if (selectedSubject === 'Pendidikan Agama Islam') {
+            if (!student.grades) student.grades = { ganjil: createEmptySemesterData(), genap: createEmptySemesterData() };
+            student.grades[settings.activeSemester] = targetSemesterData;
         }
         
         api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData);
@@ -323,7 +261,6 @@ export const App: React.FC = () => {
   };
 
   const handleManualSave = () => {
-      // Trigger granular save notification only (data is saved on change)
       setShowSaveSuccess(true);
       setTimeout(() => setShowSaveSuccess(false), 2000);
   };
@@ -420,31 +357,9 @@ export const App: React.FC = () => {
           }
           return [...prev, log];
       });
-      api.saveAttendance(log);
   };
 
   const handleSync = async () => {
-      // 1. Safety Check: Is data loaded?
-      if (!isDataLoaded) {
-          alert("PERHATIAN: Data dari server belum termuat sempurna. \n\nJANGAN melakukan sinkronisasi sekarang karena berisiko menghapus data yang ada di server dengan data kosong. \n\nSolusi: Silakan REFRESH halaman ini sampai data muncul, baru lakukan simpan.");
-          return;
-      }
-
-      // 2. Safety Check: Are there suspicious student counts?
-      if (students.length === 0 || (students.length < 20 && !window.confirm("Peringatan: Jumlah siswa sangat sedikit (" + students.length + "). Apakah Anda yakin ingin menimpa database server?"))) {
-          if (!window.confirm("Batalkan sinkronisasi?")) {
-              // User insists on proceeding
-          } else {
-              return;
-          }
-      }
-
-      // 3. Confirmation
-      if (!window.confirm("Konfirmasi Sinkronisasi:\n\nApakah Anda yakin ingin menyimpan seluruh data lokal ke server? Data di Google Sheet akan diperbarui sesuai tampilan aplikasi saat ini.")) {
-          return;
-      }
-
-      setIsSyncing(true);
       const success = await api.syncFullData(
           students,
           teachers,
@@ -454,12 +369,10 @@ export const App: React.FC = () => {
           subjectChapterConfigs,
           subjectFieldConfigs
       );
-      setIsSyncing(false);
-
       if (success) {
-          alert('Data berhasil disinkronisasi dan diamankan ke server database utama.');
+          alert('Data berhasil disinkronisasi ke server database utama.');
       } else {
-          alert('Gagal melakukan sinkronisasi. Mohon cek koneksi internet dan coba lagi.');
+          alert('Gagal melakukan sinkronisasi. Cek koneksi internet.');
       }
   };
 
@@ -473,13 +386,14 @@ export const App: React.FC = () => {
       
       const data = targets.map((s, idx) => {
           const row: any = { No: idx + 1, NIS: s.nis, Nama: s.name };
-          const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
-          if (!grades) return row;
+          // Unified Access
+          const grades = s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester] || createEmptySemesterData();
+          
           (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
               if (visible[c]) {
                   const fields = activeFields[c];
                   fields.forEach(f => {
-                      row[`${c.replace('bab','TP').toUpperCase()}_${f.toUpperCase()}`] = grades[c]?.[f]; // Safe access
+                      row[`${c.replace('bab','TP').toUpperCase()}_${f.toUpperCase()}`] = grades[c]?.[f]; 
                   });
               }
           });
@@ -520,12 +434,11 @@ export const App: React.FC = () => {
       if (activeTab === 'nilai_up') headRow.push('UP');
       
       const body = targets.map((s, idx) => {
-          const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
-          if (!grades) return [];
+          const grades = s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester] || createEmptySemesterData();
           const row = [idx + 1, s.name];
           chapters.forEach(c => {
               const fields = activeFields[c];
-              if (fields.length > 0) fields.forEach(f => row.push(grades[c]?.[f] ?? '-')); // Safe access
+              if (fields.length > 0) fields.forEach(f => row.push(grades[c]?.[f] ?? '-'));
               else row.push('-');
           });
           row.push(grades.kts ?? '-');
@@ -640,6 +553,7 @@ export const App: React.FC = () => {
   return (
     <div className="h-screen bg-[#f5f5f7] flex overflow-hidden font-sans text-gray-900">
         <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
+            {/* Sidebar content remains same */}
             <div className="p-5">
                 <div className="flex items-center gap-2 mb-6 group">
                     <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e]"></div>
@@ -664,31 +578,18 @@ export const App: React.FC = () => {
                 <SectionLabel label="Menu Utama" />
                 <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} />
                 <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} />
-                
-                {(canAccessWaliKelas || canAccessExtra) && <SectionLabel label="Tugas Tambahan" />}
-                {canAccessWaliKelas && (
-                    <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
-                )}
-                {canAccessExtra && (
-                    <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
-                )}
-                
+                <SectionLabel label="Tugas Tambahan" />
+                <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
+                <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
                 <SectionLabel label="Monitoring" />
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
                 <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
-                
-                {canAccessWaliKelas && (
-                    <>
-                        <SectionLabel label="Laporan" />
-                        <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
-                    </>
-                )}
-                
+                <SectionLabel label="Laporan" />
+                <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                <SectionLabel label="Sistem" />
+                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
                 {userRole === 'admin' && (
                     <>
-                        <SectionLabel label="Sistem" />
-                        <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
-                        
                         <SectionLabel label="Admin Master" />
                         <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} />
                         <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} />
@@ -728,7 +629,7 @@ export const App: React.FC = () => {
                                     <option value="genap">Semester Genap</option>
                                 </select>
                                 <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
-                                    {availableClassOptions.length > 0 ? availableClassOptions.map((c: string) => <option key={c} value={c}>{c}</option>) : <option value="">Tidak ada kelas</option>}
+                                    {userData?.classes?.length > 0 ? userData.classes.map((c: string) => <option key={c} value={c}>{c}</option>) : Array.from(new Set(students.map(s => s.kelas))).sort().map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                                 <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
                                     {userData?.subject && <option value={userData.subject}>{userData.subject}</option>}
@@ -738,13 +639,8 @@ export const App: React.FC = () => {
                                 {activeTab === 'dashboard' && (
                                   <>
                                     <div className="h-8 w-px bg-gray-300 mx-1 hidden xl:block"></div>
-                                    <button 
-                                        onClick={handleSync} 
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all ${isSyncing ? 'bg-gray-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
-                                        disabled={isSyncing}
-                                    >
-                                        {isSyncing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} 
-                                        {isSyncing ? 'Menyimpan...' : 'Simpan Data'}
+                                    <button onClick={handleManualSave} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all ${showSaveSuccess ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+                                        {showSaveSuccess ? <CheckCircle size={14} /> : <Save size={14} />} {showSaveSuccess ? 'Tersimpan' : 'Simpan Data'}
                                     </button>
                                     <button onClick={handleDownloadGradeTablePDF} className="p-2.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors border border-red-200" title="Download Rekap PDF"><Printer size={18} /></button>
                                     <button onClick={handleDownloadGradeTableExcel} className="p-2.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-medium transition-colors border border-green-200" title="Download Rekap Excel"><FileSpreadsheet size={18} /></button>
@@ -755,49 +651,34 @@ export const App: React.FC = () => {
                              </div>
                          </div>
                          <div className="flex-1 overflow-auto custom-scrollbar bg-white/80">
-                             <GradeTable 
-                                students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} 
-                                selectedSemester={settings.activeSemester} 
-                                subjectName={selectedSubject} 
-                                activeFieldsMap={getActiveFieldsMap()} 
-                                visibleChapters={getVisibleChapters()} 
-                                visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} 
-                                assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} 
-                                academicYear={settings.academicYear} 
-                                onUpdateScore={handleUpdateScore} 
-                                isEditable={true} 
-                                showUpColumn={activeTab === 'nilai_up'} 
-                                upRanges={settings.upRanges} 
-                                unlockedCells={new Set()} 
-                                getScoreInputClass={() => ''} 
-                             />
+                             <GradeTable students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} selectedSemester={settings.activeSemester} subjectName={selectedSubject} activeFieldsMap={getActiveFieldsMap()} visibleChapters={getVisibleChapters()} visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} academicYear={settings.academicYear} onUpdateScore={handleUpdateScore} isEditable={true} showUpColumn={activeTab === 'nilai_up'} upRanges={settings.upRanges} />
                              {activeTab === 'dashboard' && (
                                 <AssessmentHistory history={assessmentHistory.filter(h => h.targetClass === selectedClass && h.semester === settings.activeSemester && (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')))} currentSemester={settings.activeSemester} onEdit={(session) => { setEditingSession(session); setIsInputModalOpen(true); }} onDelete={handleDeleteHistory} onResetHistory={handleResetHistory} />
                              )}
                          </div>
                      </div>
                  )}
-                 {activeTab === 'walikelas' && canAccessWaliKelas && (
+                 {activeTab === 'walikelas' && (
                      <div className="bg-white h-full flex flex-col">
                         <WaliKelasView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} userRole={userRole || 'admin'} userData={userData} />
                      </div>
                  )}
-                 {activeTab === 'extra' && canAccessExtra && (
+                 {activeTab === 'extra' && (
                      <div className="bg-white h-full flex flex-col">
                         <ExtraActivityView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} settings={settings} teachers={teachers} onUpdateSettings={handleSaveSettings} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} onSync={handleSync} userRole={userRole || 'admin'} userData={userData} />
                      </div>
                  )}
-                 {activeTab === 'students' && userRole === 'admin' && (
+                 {activeTab === 'students' && (
                      <div className="bg-white h-full flex flex-col">
                         <StudentDataTable students={students} onAdd={() => { setEditingStudent(null); setIsAddStudentModalOpen(true); }} onEdit={(s) => { setEditingStudent(s); setIsAddStudentModalOpen(true); }} onDelete={handleDeleteStudent} onImport={handleImportStudents} onSync={handleSync} />
                      </div>
                  )}
-                 {activeTab === 'teachers' && userRole === 'admin' && (
+                 {activeTab === 'teachers' && (
                      <div className="bg-white h-full flex flex-col">
                         <TeacherDataView teachers={teachers} setTeachers={saveTeacher => { if (teachers.some(t => t.id === saveTeacher.id)) { setTeachers(prev => prev.map(t => t.id === saveTeacher.id ? saveTeacher : t)); } else { setTeachers(prev => [...prev, saveTeacher]); } api.saveTeacher(saveTeacher); }} availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} availableSubjects={settings.subjects} onSync={handleSync} />
                      </div>
                  )}
-                 {activeTab === 'monitor_teachers' && userRole === 'admin' && (
+                 {activeTab === 'monitor_teachers' && (
                      <div className="bg-white h-full flex flex-col">
                         <TeacherMonitoringView teachers={teachers} history={assessmentHistory} currentSemester={settings.activeSemester} availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} />
                      </div>
@@ -807,17 +688,17 @@ export const App: React.FC = () => {
                         <MonitoringView type={activeTab as 'tanggungan' | 'remidi'} students={selectedClass ? students.filter(s => s.kelas === selectedClass) : students} history={assessmentHistory.filter(h => h.targetClass === selectedClass)} currentSemester={settings.activeSemester} subjectName={selectedSubject} teacherName={userData?.name} teacherNip={userData?.nip} principalName={settings.principalName} principalNip={settings.principalNip} academicYear={settings.academicYear} />
                      </div>
                  )}
-                 {activeTab === 'rapor_sisipan' && canAccessWaliKelas && (
+                 {activeTab === 'rapor_sisipan' && (
                      <div className="bg-white h-full flex flex-col">
                         <MidSemesterReportView students={students} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} />
                      </div>
                  )}
-                 {activeTab === 'reset' && userRole === 'admin' && (
+                 {activeTab === 'reset' && (
                      <div className="bg-white h-full flex flex-col">
                         <ResetDataView availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} currentSemester={settings.activeSemester} onResetClass={handleResetClass} />
                      </div>
                  )}
-                 {activeTab === 'settings' && userRole === 'admin' && (
+                 {activeTab === 'settings' && (
                      <div className="bg-white h-full flex flex-col">
                         <SettingsView settings={settings} teachers={teachers} onSaveSettings={handleSaveSettings} />
                      </div>
@@ -835,3 +716,5 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+export default App;

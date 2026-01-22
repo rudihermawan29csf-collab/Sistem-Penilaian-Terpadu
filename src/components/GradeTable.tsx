@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession, UpRange, SemesterData } from '../types';
-import { calculateChapterAverage, calculateFinalGrade } from '../utils';
+import { calculateChapterAverage, calculateFinalGrade, createEmptySemesterData } from '../utils';
 import { Info, X } from 'lucide-react';
 
 interface GradeTableProps {
@@ -19,27 +19,19 @@ interface GradeTableProps {
   upRanges?: UpRange[];
 }
 
-// Helper: Get correct grades based on subject
+// Helper: Get correct grades based on subject with robust fallback
 const getStudentGrades = (student: Student, subjectName: string, selectedSemester: SemesterKey): SemesterData => {
-    let data;
-    if (subjectName === 'Pendidikan Agama Islam') {
-        data = student.grades[selectedSemester];
-    } else {
-        data = student.gradesBySubject?.[subjectName]?.[selectedSemester];
+    // 1. Try fetching from gradesBySubject (Standard for all subjects now)
+    const subjectGrades = student.gradesBySubject?.[subjectName]?.[selectedSemester];
+    if (subjectGrades) return subjectGrades;
+
+    // 2. Legacy fallback for PAI if only stored in root grades
+    if (subjectName === 'Pendidikan Agama Islam' && student.grades?.[selectedSemester]) {
+        return student.grades[selectedSemester];
     }
-    
-    // Fallback if data is missing or incomplete
-    if (!data) {
-        return {
-            bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-            bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-            bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-            bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-            bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
-            kts: null, sas: null, nilaiUp: null
-        };
-    }
-    return data;
+
+    // 3. Return empty structure if nothing found
+    return createEmptySemesterData();
 };
 
 const getFieldsForChapter = (chapKey: ChapterKey, visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>, showUpColumn?: boolean) => {
@@ -65,7 +57,7 @@ const GradeTableRow = React.memo(({
     upRanges, 
     isEditable, 
     onUpdateScore,
-    unlockedCells, // Changed from isCellActive function to a Set of strings
+    unlockedCells, 
     getScoreInputClass 
 }: any) => {
     
@@ -73,7 +65,7 @@ const GradeTableRow = React.memo(({
     const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
     
     let displayUp: number | null = semesterData.nilaiUp;
-    if (showUpColumn && displayUp === null && finalGrade !== null && upRanges.length > 0) {
+    if (showUpColumn && displayUp === null && finalGrade !== null && upRanges && upRanges.length > 0) {
         const range = upRanges.find((r: UpRange) => finalGrade >= r.min && finalGrade <= r.max);
         if (range) {
             displayUp = range.value;
@@ -98,15 +90,16 @@ const GradeTableRow = React.memo(({
 
             {chapters.map((chap: any) => {
                 const fieldsToShow = getFieldsForChapter(chap.key, visibleFields, showUpColumn);
-                // Safe access to chapter data using optional chaining
-                const chapterData = semesterData[chap.key] || {};
+                // SAFEGUARD: fallback to object if chapter data is undefined to prevent 'reading f1 of undefined'
+                const chapterData = semesterData[chap.key] || { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null };
                 
                 return (
                 <React.Fragment key={chap.key}>
                     {!showUpColumn && fieldsToShow.map((f: any) => {
                         const cellKey = `${chap.key}-${f}`;
                         const unlocked = isUnlocked(cellKey);
-                        const val = chapterData[f];
+                        const val = chapterData[f]; // Safe read from safeguarded object
+
                         return (
                         <td key={f} className={`p-1 border-r border-gray-50 text-center ${unlocked ? 'bg-blue-50/30' : ''}`}>
                             {unlocked ? (
@@ -117,13 +110,13 @@ const GradeTableRow = React.memo(({
                     <td className="p-1 border-r border-gray-100 text-center bg-gray-50/30">
                         <span className={`text-xs font-bold ${
                             (() => {
-                                const avg = calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []);
+                                const avg = calculateChapterAverage(chapterData, activeFieldsMap[chap.key] || []);
                                 if (avg === null) return 'text-gray-300';
                                 if (avg < 75) return 'text-red-500';
                                 return 'text-gray-600';
                             })()
                         }`}>
-                            {calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []) ?? '-'}
+                            {calculateChapterAverage(chapterData, activeFieldsMap[chap.key] || []) ?? '-'}
                         </span>
                     </td>
                 </React.Fragment>
@@ -195,7 +188,6 @@ const GradeTable: React.FC<GradeTableProps> = ({
       }
 
       assessmentHistory.forEach(h => {
-          // Double check subject to be safe, although parent component filters it
           const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
           if (historySubject !== subjectName) return;
 

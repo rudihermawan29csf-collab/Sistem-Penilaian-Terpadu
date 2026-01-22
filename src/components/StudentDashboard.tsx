@@ -14,7 +14,7 @@ interface StudentDashboardProps {
   teachers: Teacher[];
   onLogout: () => void;
   subjectChapterConfigs?: Record<string, Record<ChapterKey, boolean>>;
-  dailyAttendance: DailyAttendanceLog[]; // New Prop
+  dailyAttendance?: DailyAttendanceLog[]; // New Prop
 }
 
 const StudentDashboard: React.FC<StudentDashboardProps> = ({ 
@@ -84,15 +84,19 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
   }, [availableSubjects, selectedSubject]);
 
-  // 3. Helper to get grades for a specific subject
+  // 3. Helper to get grades for a specific subject (UNIFIED)
   const getGradesForSubject = (subject: string): SemesterData => {
-      let data;
-      if (subject === 'Pendidikan Agama Islam') {
-          data = student.grades[selectedSemester];
-      } else {
-          data = student.gradesBySubject?.[subject]?.[selectedSemester];
+      // 1. Try fetching from gradesBySubject (Standard)
+      const subjectGrades = student.gradesBySubject?.[subject]?.[selectedSemester];
+      if (subjectGrades) return subjectGrades;
+
+      // 2. Legacy fallback for PAI
+      if (subject === 'Pendidikan Agama Islam' && student.grades?.[selectedSemester]) {
+          return student.grades[selectedSemester];
       }
-      return data || createEmptySemesterData();
+
+      // 3. Fallback to empty
+      return createEmptySemesterData();
   };
 
   // 4. Helper to Calculate Active Fields for ANY Subject
@@ -123,6 +127,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const attendanceSemesterStats = useMemo(() => {
       const stats = { h: 0, s: 0, i: 0, a: 0 };
       
+      // Filter logs for this student's class (Assumes all logs in DB are current semester for simplicity, 
+      // or should filter by date range if semester dates defined)
       const classLogs = dailyAttendance.filter(l => l.className === student.kelas);
       
       classLogs.forEach(log => {
@@ -153,6 +159,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           };
       });
 
+      // Stats for this specific month
       const stats = { h: 0, s: 0, i: 0, a: 0 };
       details.forEach(d => {
           if (d.status === 'H') stats.h++;
@@ -320,7 +327,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       const renderScoreBox = (score: number | null, label: string, session?: GradingSession) => {
         let bgClass = 'bg-gray-100 text-gray-800';
         let statusLabel = null;
-        if (score !== null && score !== undefined) {
+        if (score !== null) {
           if (score === 0) {
             bgClass = 'bg-red-500 text-white shadow-md shadow-red-200';
             statusLabel = (<span className="flex items-center gap-1 text-[10px] text-red-600 font-bold bg-red-100 px-1.5 py-0.5 rounded mt-1"><AlertCircle size={10} /> Tanggungan</span>);
@@ -335,10 +342,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="flex flex-col items-center p-2 rounded-lg hover:bg-gray-50 transition-colors">
              <span className="text-[10px] text-gray-400 font-medium mb-1 uppercase">{label}</span>
              <div className={`w-full py-1.5 rounded-lg text-sm font-bold text-center ${bgClass}`}>
-                {(score !== null && score !== undefined) ? score : '-'}
+                {score !== null ? score : '-'}
              </div>
              {statusLabel}
-             {(score !== null && score !== undefined) && session && (
+             {score !== null && session && (
                <div className="mt-1 flex flex-col items-center">
                  <span className="text-[9px] text-gray-400 font-medium">{session.date}</span>
                  <span className="text-[9px] text-gray-500 leading-tight px-1 truncate max-w-[80px] text-center" title={session.description}>{session.description}</span>
@@ -423,8 +430,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide ml-1">Rincian Nilai TP</h3>
           {chapters.map((chap) => {
-             // Safe access with optional chaining
-             const chapterData = grades[chap.key] || {};
+             // SAFE FALLBACK for chapter data
+             const chapterData = grades[chap.key] || { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null };
              const activeFields = activeFieldsMap[chap.key];
              const hasData = activeFields.length > 0;
              const avg = calculateChapterAverage(chapterData, activeFields);
@@ -438,12 +445,12 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <div className="p-4">
                    <div className="grid grid-cols-6 gap-2">
                       {(['f1', 'f2', 'f3', 'f4', 'f5'] as const).map((f, i) => {
-                         const score = chapterData?.[f];
+                         const score = chapterData[f];
                          if (!activeFields.includes(f)) return null;
                          const session = getScoreMetadata(chap.key, f);
                          return (<React.Fragment key={f}>{renderScoreBox(score, `F${i+1}`, session)}</React.Fragment>);
                       })}
-                      {(activeFields.includes('sum')) && (<React.Fragment key="sum">{renderScoreBox(chapterData?.sum, 'SUM', getScoreMetadata(chap.key, 'sum'))}</React.Fragment>)}
+                      {(activeFields.includes('sum')) && (<React.Fragment key="sum">{renderScoreBox(chapterData.sum, 'SUM', getScoreMetadata(chap.key, 'sum'))}</React.Fragment>)}
                    </div>
                 </div>
               </div>
@@ -538,8 +545,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   // RENDER: MONITORING (Tanggungan & Remidi)
   const renderMonitoringList = (type: 'tanggungan' | 'remidi') => {
+      // Logic: Iterate history (to get actual tasks assigned) -> check student score
       const listItems: { subject: string, taskName: string, description: string, score: number, date: string, teacher: string }[] = [];
 
+      // Filter relevant history first (class & semester)
       const relevantHistory = assessmentHistory.filter(h => 
           h.targetClass === student.kelas && h.semester === selectedSemester
       );
@@ -549,9 +558,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           const grades = getGradesForSubject(subject);
           let score: number | null = null;
 
-          // Safe access
           if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
-            score = grades[session.chapterKey]?.[session.formativeKey] ?? null;
+            score = grades[session.chapterKey][session.formativeKey];
           } else if (session.type === 'kts') {
             score = grades.kts;
           } else if (session.type === 'sas') {
@@ -560,9 +568,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
           const isMatch = type === 'tanggungan' 
              ? (score === 0) 
-             : (score !== null && score !== undefined && score > 0 && score < 70);
+             : (score !== null && score > 0 && score < 70);
 
-          if (isMatch && score !== null && score !== undefined) {
+          if (isMatch && score !== null) {
+              // Format task name
               let taskName = session.type.toUpperCase();
               if (session.type === 'bab' && session.chapterKey) {
                   const babNum = parseInt(session.chapterKey.replace('bab', ''));
@@ -582,6 +591,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           }
       });
 
+      // Group by Subject
       const grouped = listItems.reduce((acc, item) => {
           if (!acc[item.subject]) acc[item.subject] = [];
           acc[item.subject].push(item);

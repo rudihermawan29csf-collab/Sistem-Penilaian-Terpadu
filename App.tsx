@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
@@ -641,7 +640,7 @@ const App: React.FC = () => {
                              </div>
                          </div>
                          <div className="flex-1 overflow-auto custom-scrollbar bg-white/80">
-                             <GradeTable students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} selectedSemester={settings.activeSemester} subjectName={selectedSubject} activeFieldsMap={getActiveFieldsMap()} visibleChapters={getVisibleChapters()} visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} academicYear={settings.academicYear} onUpdateScore={handleUpdateScore} isEditable={true} showUpColumn={activeTab === 'nilai_up'} upRanges={settings.upRanges} unlockedCells={new Set()} getScoreInputClass={() => ''} />
+                             <GradeTable students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} selectedSemester={settings.activeSemester} subjectName={selectedSubject} activeFieldsMap={getActiveFieldsMap()} visibleChapters={getVisibleChapters()} visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} academicYear={settings.academicYear} onUpdateScore={handleUpdateScore} isEditable={true} showUpColumn={activeTab === 'nilai_up'} upRanges={settings.upRanges} />
                              {activeTab === 'dashboard' && (
                                 <AssessmentHistory history={assessmentHistory.filter(h => h.targetClass === selectedClass && h.semester === settings.activeSemester && (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')))} currentSemester={settings.activeSemester} onEdit={(session) => { setEditingSession(session); setIsInputModalOpen(true); }} onDelete={handleDeleteHistory} onResetHistory={handleResetHistory} />
                              )}

@@ -14,7 +14,7 @@ interface StudentDashboardProps {
   teachers: Teacher[];
   onLogout: () => void;
   subjectChapterConfigs?: Record<string, Record<ChapterKey, boolean>>;
-  dailyAttendance: DailyAttendanceLog[]; // New Prop
+  dailyAttendance?: DailyAttendanceLog[]; // New Prop
 }
 
 const StudentDashboard: React.FC<StudentDashboardProps> = ({ 
@@ -86,7 +86,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   // 3. Helper to get grades for a specific subject
   const getGradesForSubject = (subject: string): SemesterData => {
-      if (subject === 'Pendidikan Agama Islam') return student.grades[selectedSemester];
+      if (subject === 'Pendidikan Agama Islam') return student.grades?.[selectedSemester] || createEmptySemesterData();
       return student.gradesBySubject?.[subject]?.[selectedSemester] || createEmptySemesterData();
   };
 

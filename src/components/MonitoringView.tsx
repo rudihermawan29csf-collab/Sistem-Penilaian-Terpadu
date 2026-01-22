@@ -51,16 +51,24 @@ const MonitoringView: React.FC<MonitoringViewProps> = ({
       let score: number | null = null;
       
       const sessionSubject = session.targetSubject || 'Pendidikan Agama Islam';
-      const grades = sessionSubject === 'Pendidikan Agama Islam' 
-          ? student.grades[currentSemester] 
-          : (student.gradesBySubject?.[sessionSubject]?.[currentSemester] || createEmptySemesterData());
-
-      if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
-        score = grades[session.chapterKey][session.formativeKey];
-      } else if (session.type === 'kts') {
-        score = grades.kts;
-      } else if (session.type === 'sas') {
-        score = grades.sas;
+      
+      // UNIFIED ACCESS LOGIC
+      let grades = student.gradesBySubject?.[sessionSubject]?.[currentSemester];
+      
+      // Fallback for PAI legacy data if not found in unified storage
+      if (!grades && sessionSubject === 'Pendidikan Agama Islam') {
+          grades = student.grades?.[currentSemester];
+      }
+      
+      // Ensure grades object exists before accessing
+      if (grades) {
+          if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
+            score = grades[session.chapterKey]?.[session.formativeKey] ?? null;
+          } else if (session.type === 'kts') {
+            score = grades.kts ?? null;
+          } else if (session.type === 'sas') {
+            score = grades.sas ?? null;
+          }
       }
 
       // Logic Filter

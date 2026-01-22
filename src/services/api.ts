@@ -123,10 +123,6 @@ export const saveSettings = async (settings: AppSettings) => {
     return await postData({ action: 'saveSettings', settings });
 };
 
-export const saveAttendance = async (log: DailyAttendanceLog) => {
-    return await postData({ action: 'saveAttendance', log });
-};
-
 export const resetClassGrades = async (className: string, semester: string) => {
     return true; 
 };
@@ -137,4 +133,8 @@ export const saveTeacher = async (teacher: Teacher) => {
 
 export const deleteTeacher = async (id: number) => {
     return true;
+};
+
+export const saveAttendance = async (log: DailyAttendanceLog) => {
+    return await postData({ action: 'saveAttendance', log });
 };

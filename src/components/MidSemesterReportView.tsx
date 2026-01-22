@@ -119,18 +119,27 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({
     const config = getChapterConfig();
 
     return sortedSubjects.map(subject => {
-      let grades = subject === 'Pendidikan Agama Islam' ? student.grades[settings.activeSemester] : (student.gradesBySubject?.[subject]?.[settings.activeSemester] || createEmptySemesterData());
+      // UNIFIED DATA ACCESS
+      let grades = student.gradesBySubject?.[subject]?.[settings.activeSemester];
+      if (!grades && subject === 'Pendidikan Agama Islam') {
+          grades = student.grades?.[settings.activeSemester];
+      }
+      if (!grades) grades = createEmptySemesterData();
+
       const chapterScores: Record<string, string> = {}; 
       let totalScore = 0; let count = 0;
 
       config.activeChaps.forEach(chap => {
-        const chapGrades = grades[chap];
-        config.colMap[chap].forEach(f => { chapterScores[`${chap}_${f}`] = chapGrades[f] !== null ? chapGrades[f]!.toString() : '-'; });
+        // Safe access to chapter data using fallback
+        const chapGrades = grades[chap] || { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null };
+        config.colMap[chap].forEach(f => { 
+            chapterScores[`${chap}_${f}`] = (chapGrades[f] !== null && chapGrades[f] !== undefined) ? chapGrades[f]!.toString() : '-'; 
+        });
         const avg = calculateChapterAverage(chapGrades, ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'].filter(f => chapGrades[f as FormativeKey] !== null) as FormativeKey[]);
         if (avg !== null) { totalScore += avg; count++; }
       });
 
-      if (grades.kts !== null) { totalScore += grades.kts; count++; }
+      if (grades.kts !== null && grades.kts !== undefined) { totalScore += grades.kts; count++; }
       const finalAvg = count > 0 ? Math.round(totalScore / count) : null;
       return { subject, chapterScores, kts: grades.kts, finalAvg };
     });
@@ -150,14 +159,16 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({
           const subject = session.targetSubject || 'Pendidikan Agama Islam';
           let grade = null;
           
-          const grades = subject === 'Pendidikan Agama Islam' 
-              ? student.grades[settings.activeSemester] 
-              : student.gradesBySubject?.[subject]?.[settings.activeSemester];
+          // UNIFIED DATA ACCESS
+          let grades = student.gradesBySubject?.[subject]?.[settings.activeSemester];
+          if (!grades && subject === 'Pendidikan Agama Islam') {
+              grades = student.grades?.[settings.activeSemester];
+          }
 
           if (!grades) return;
 
           if (session.type === 'bab' && session.chapterKey && session.formativeKey) {
-              grade = grades[session.chapterKey][session.formativeKey];
+              grade = grades[session.chapterKey]?.[session.formativeKey] ?? null;
           } else if (session.type === 'kts') {
               grade = grades.kts;
           } else if (session.type === 'sas') {
