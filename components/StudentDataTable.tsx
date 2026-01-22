@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { Student } from '../types';
-import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter, CloudUpload } from 'lucide-react';
+import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter, CloudUpload, AlertCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { createEmptySemesterData } from '../utils';
 
@@ -35,18 +35,30 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
   // Filter Logic (Search Term AND Class Filter)
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
+        // Robust safety checks for data integrity to prevent crashes
+        const name = s.name ? String(s.name).toLowerCase() : '';
+        const nis = s.nis ? String(s.nis).toLowerCase() : '';
+        const nisn = s.nisn ? String(s.nisn).toLowerCase() : '';
+        const term = searchTerm.toLowerCase();
+
         const matchesSearch = 
-            s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            s.nis.includes(searchTerm) ||
-            s.nisn?.includes(searchTerm);
+            name.includes(term) || 
+            nis.includes(term) ||
+            nisn.includes(term);
         
         const matchesClass = selectedClassFilter === '' || s.kelas === selectedClassFilter;
 
         return matchesSearch && matchesClass;
     }).sort((a, b) => {
+        // Safe sort
+        const classA = a.kelas || '';
+        const classB = b.kelas || '';
+        const nameA = a.name || '';
+        const nameB = b.name || '';
+
         // Sort by Class then Name
-        if (a.kelas === b.kelas) return a.name.localeCompare(b.name);
-        return a.kelas.localeCompare(b.kelas);
+        if (classA === classB) return nameA.localeCompare(nameB);
+        return classA.localeCompare(classB);
     });
   }, [students, searchTerm, selectedClassFilter]);
 
@@ -62,7 +74,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
     XLSX.writeFile(wb, "Template_Import_Siswa.xlsx");
   };
 
-  // Handle Import Excel
+  // Robust Excel Import Handler
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -84,49 +96,91 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
             const wsname = wb.SheetNames[0];
             const ws = wb.Sheets[wsname];
             
-            // Convert to JSON
-            const data = XLSX.utils.sheet_to_json(ws);
+            // Convert to Array of Arrays to find header row dynamically
+            const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
-            if (!data || data.length === 0) {
-                 alert("Gagal: Data di dalam file kosong.");
+            if (!rawData || rawData.length === 0) {
+                 alert("Gagal: File kosong.");
                  return;
+            }
+
+            // 1. Find Header Row
+            let headerRowIndex = -1;
+            const targetHeaders = ['nama', 'kelas']; // Key columns to identify header row
+            
+            for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+                const rowStr = rawData[i].map(c => String(c).toLowerCase()).join(' ');
+                if (targetHeaders.every(h => rowStr.includes(h))) {
+                    headerRowIndex = i;
+                    break;
+                }
+            }
+
+            if (headerRowIndex === -1) {
+                // Fallback: Check if row 0 has at least 'Nama' or 'Name'
+                const row0 = rawData[0].map(c => String(c).toLowerCase()).join(' ');
+                if (row0.includes('nama') || row0.includes('name')) {
+                    headerRowIndex = 0;
+                } else {
+                    alert("Gagal: Tidak dapat menemukan baris header (Nama, Kelas, NIS). Pastikan format sesuai template.");
+                    return;
+                }
+            }
+
+            // 2. Map Columns
+            const headers = rawData[headerRowIndex].map(h => String(h).trim().toLowerCase());
+            const colMap = {
+                nis: headers.findIndex(h => h === 'nis' || h.includes('induk')),
+                nisn: headers.findIndex(h => h === 'nisn'),
+                name: headers.findIndex(h => h === 'nama' || h.includes('nama siswa') || h.includes('nama lengkap')),
+                kelas: headers.findIndex(h => h === 'kelas' || h.includes('rombel')),
+                gender: headers.findIndex(h => h === 'gender' || h === 'l/p' || h.includes('jenis') || h === 'jk')
+            };
+
+            if (colMap.name === -1 || colMap.kelas === -1) {
+                alert("Gagal: Kolom 'Nama' dan 'Kelas' wajib ada.");
+                return;
             }
 
             const parsedStudents: Student[] = [];
             let skippedCount = 0;
 
-            // Process each row
-            data.forEach((row: any, index) => {
-                // Flexible Column Matching (Handle Case Sensitivity)
-                const nisRaw = row['NIS'] || row['nis'] || row['Nis'];
-                const nisnRaw = row['NISN'] || row['nisn'] || row['Nisn'];
-                const namaRaw = row['Nama'] || row['nama'] || row['Nama Siswa'] || row['nama siswa'];
-                const kelasRaw = row['Kelas'] || row['kelas'];
-                const genderRaw = row['Gender'] || row['gender'] || row['Jenis Kelamin'] || row['L/P'];
+            // 3. Process Data Rows
+            for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+                const row = rawData[i];
+                if (!row || row.length === 0) continue;
 
-                // Validate Essential Data
-                if (!namaRaw || !kelasRaw) {
+                const nameVal = row[colMap.name];
+                const kelasVal = row[colMap.kelas];
+
+                // Skip if name is empty
+                if (!nameVal) {
                     skippedCount++;
-                    return; 
+                    continue;
                 }
 
+                const nisVal = colMap.nis !== -1 ? row[colMap.nis] : undefined;
+                const nisnVal = colMap.nisn !== -1 ? row[colMap.nisn] : undefined;
+                const genderVal = colMap.gender !== -1 ? row[colMap.gender] : undefined;
+
                 // Normalize Data
-                // Force NIS to string to prevent scientific notation issues
-                const nisStr = nisRaw ? String(nisRaw).trim() : `TEMP-${Date.now()}-${index}`;
-                const nisnStr = nisnRaw ? String(nisnRaw).trim() : '';
-                const nameStr = String(namaRaw).trim().replace(/['"]/g, ''); // Remove quotes that might break JSON
-                const kelasStr = String(kelasRaw).trim().toUpperCase();
+                const nameStr = String(nameVal).trim().replace(/['"]/g, '');
+                const kelasStr = String(kelasVal).trim().toUpperCase();
                 
+                // NIS: Handle if Excel formatted as number
+                const nisStr = nisVal ? String(nisVal).trim() : `TEMP-${Date.now()}-${i}`;
+                const nisnStr = nisnVal ? String(nisnVal).trim() : '';
+
                 // Gender Normalization
                 let genderChar: 'L' | 'P' = 'L';
-                if (genderRaw) {
-                    const g = String(genderRaw).trim().toUpperCase();
-                    if (g.startsWith('P') || g === 'WANITA') genderChar = 'P';
+                if (genderVal) {
+                    const g = String(genderVal).trim().toUpperCase();
+                    if (g.startsWith('P') || g === 'WANITA' || g === 'PEREMPUAN') genderChar = 'P';
                 }
 
                 parsedStudents.push({
-                    id: Date.now() + index + Math.random(), // Unique ID
-                    no: index + 1,
+                    id: Date.now() + i + Math.floor(Math.random() * 1000), // Ensure unique ID
+                    no: i - headerRowIndex,
                     nis: nisStr,
                     nisn: nisnStr,
                     name: nameStr,
@@ -146,21 +200,20 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                         genap: []
                     }
                 });
-            });
+            }
 
             if (parsedStudents.length > 0) {
-                const confirmMsg = `Ditemukan ${parsedStudents.length} data siswa valid.\n(Dilewati: ${skippedCount} baris kosong/rusak)\n\nKlik OK untuk import ke database.`;
+                const confirmMsg = `Ditemukan ${parsedStudents.length} data siswa valid.\n(Baris dilewati/kosong: ${skippedCount})\n\nKlik OK untuk import ke database.`;
                 if(window.confirm(confirmMsg)) {
-                    // Let parent component handle the async API call and loading state
                     onImport(parsedStudents);
                 }
             } else {
-                alert('GAGAL: Tidak ada data valid ditemukan. Pastikan header kolom Excel adalah: "NIS", "NISN", "Nama", "Kelas", "Gender".');
+                alert('GAGAL: Tidak ada data valid yang ditemukan setelah baris header.');
             }
 
         } catch (error) {
             console.error("Import Error:", error);
-            alert("ERROR: File Excel rusak atau tidak valid.");
+            alert("ERROR: File Excel rusak atau format tidak dikenali.");
         }
     };
 
