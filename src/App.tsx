@@ -374,6 +374,7 @@ export const App: React.FC = () => {
       await api.saveSettings(newSettings);
   };
 
+  // UPDATED: Now calls API directly to persist data immediately
   const handleSaveDailyAttendance = (log: DailyAttendanceLog) => {
       setDailyAttendance(prev => {
           const idx = prev.findIndex(l => l.id === log.id);
@@ -384,6 +385,7 @@ export const App: React.FC = () => {
           }
           return [...prev, log];
       });
+      api.saveAttendance(log); // Persist immediately
   };
 
   const handleSync = async () => {
