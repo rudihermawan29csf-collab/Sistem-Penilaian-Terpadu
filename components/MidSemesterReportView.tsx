@@ -75,7 +75,16 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({
       }
   }, [selectedClass, classStudents]);
 
-  const waliKelasInfo = useMemo(() => settings.waliKelasMap?.[selectedClass] || { name: '..................................', nip: '..................................' }, [settings.waliKelasMap, selectedClass]);
+  // UPDATED: Get Wali Kelas from Teachers Data instead of Settings Map
+  const waliKelasInfo = useMemo(() => {
+      const assignedTeacher = teachers.find(t => t.waliKelas === selectedClass);
+      if (assignedTeacher) {
+          return { name: assignedTeacher.name, nip: assignedTeacher.nip || '-' };
+      }
+      // Fallback to settings map if exists, or placeholders
+      return settings.waliKelasMap?.[selectedClass] || { name: '..................................', nip: '..................................' };
+  }, [teachers, selectedClass, settings.waliKelasMap]);
+
   const attendanceData = useMemo(() => selectedStudent?.attendance?.[settings.activeSemester] || { s: 0, i: 0, a: 0 }, [selectedStudent, settings.activeSemester]);
   const extraData = useMemo(() => selectedStudent?.extracurricularRecord?.[settings.activeSemester] || [], [selectedStudent, settings.activeSemester]);
 
@@ -431,7 +440,14 @@ const MidSemesterReportView: React.FC<MidSemesterReportViewProps> = ({
             y = 20; 
         } 
         
-        const wk = settings.waliKelasMap?.[selectedClass] || { name: '...', nip: '...' };
+        // UPDATED: Get Wali Kelas from Teacher Data first for PDF
+        let wk = { name: '...', nip: '...' };
+        const assignedTeacher = teachers.find(t => t.waliKelas === selectedClass);
+        if (assignedTeacher) {
+            wk = { name: assignedTeacher.name, nip: assignedTeacher.nip || '-' };
+        } else if (settings.waliKelasMap?.[selectedClass]) {
+            wk = settings.waliKelasMap[selectedClass];
+        }
         
         // Get date based on semester
         const reportDate = settings.midSemesterDate[settings.activeSemester] || new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'});
