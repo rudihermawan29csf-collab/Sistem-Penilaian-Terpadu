@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
@@ -145,6 +144,13 @@ export const App: React.FC = () => {
   
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
+  const availableClassOptions = useMemo(() => {
+      if (userData?.classes?.length > 0) {
+          return userData.classes;
+      }
+      return Array.from(new Set(students.map(s => s.kelas))).sort();
+  }, [userData, students]);
+
   // --- INITIALIZATION ---
   useEffect(() => {
     const loadData = async () => {
@@ -156,6 +162,7 @@ export const App: React.FC = () => {
         if (data.history) setAssessmentHistory(data.history);
         if (data.settings) {
             let loadedSettings = data.settings;
+            // Prevent crash if some settings are missing
             if (Array.isArray(loadedSettings.kokurikulerProjects)) {
                 loadedSettings.kokurikulerProjects = {
                     ganjil: loadedSettings.kokurikulerProjects,
@@ -168,44 +175,46 @@ export const App: React.FC = () => {
                     genap: loadedSettings.midSemesterDate
                 };
             }
+            // Fix potential undefined maps
+            if (!loadedSettings.waliKelasMap) loadedSettings.waliKelasMap = {};
+            if (!loadedSettings.visibleChapters) loadedSettings.visibleChapters = defaultSettings.visibleChapters;
+            if (!loadedSettings.midSemesterFieldConfig) loadedSettings.midSemesterFieldConfig = defaultSettings.midSemesterFieldConfig;
+
             setSettings(prev => ({ ...prev, ...loadedSettings }));
         }
         if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
         if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
         if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
         
-        // Critical: Only set this to true if we successfully loaded data
         setIsDataLoaded(true);
       } else {
         console.error("Gagal memuat data dari server. Menggunakan data default (Bahaya untuk Sync).");
-        // We do NOT set isDataLoaded to true here.
       }
       setLoading(false);
     };
     loadData();
   }, []);
 
-  // --- ACCESS CONTROL LOGIC ---
+  // --- ACCESS CONTROL LOGIC (CRITICAL FOR VISIBILITY) ---
   const currentTeacher = useMemo(() => {
       if (userRole === 'teacher' && userData) {
-          // Find latest teacher data from state, not just initial login data
-          return teachers.find(t => t.name === userData.name);
+          // Find latest teacher data from state by name to get fresh assignments
+          return teachers.find(t => t.name === userData.name) || userData;
       }
       return null;
   }, [userRole, userData, teachers]);
 
   const canAccessWaliKelas = useMemo(() => {
       if (userRole === 'admin') return true;
-      // Check if current logged-in teacher has 'waliKelas' property set
-      if (currentTeacher?.waliKelas) return true;
+      if (currentTeacher?.waliKelas && currentTeacher.waliKelas.length > 0) return true;
       return false;
   }, [userRole, currentTeacher]);
 
   const canAccessExtra = useMemo(() => {
       if (userRole === 'admin') return true;
       if (currentTeacher) {
-          // Check if user is a coach in any existing extra settings
-          return settings.extracurriculars?.some(ex => ex.coach === currentTeacher.name);
+          const extras = settings.extracurriculars || [];
+          return extras.some(ex => ex.coach === currentTeacher.name);
       }
       return false;
   }, [userRole, currentTeacher, settings.extracurriculars]);
@@ -250,12 +259,23 @@ export const App: React.FC = () => {
     setStudents(prev => prev.map(student => {
       if (student.id === id) {
         const newGrades = { ...student.grades };
-        const semesterData = { ...newGrades[settings.activeSemester] };
         const isPAI = selectedSubject === 'Pendidikan Agama Islam';
         let targetSemesterData: any;
         
         if (isPAI) {
-            targetSemesterData = semesterData;
+            // Ensure semester structure exists
+            if (!newGrades[settings.activeSemester]) {
+                // Initialize if missing
+                newGrades[settings.activeSemester] = {
+                    bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    kts: null, sas: null, nilaiUp: null
+                };
+            }
+            targetSemesterData = { ...newGrades[settings.activeSemester] };
         } else {
             if (!student.gradesBySubject) student.gradesBySubject = {};
             if (!student.gradesBySubject[selectedSubject]) {
@@ -264,13 +284,29 @@ export const App: React.FC = () => {
                     genap: { bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null }, kts: null, sas: null, nilaiUp: null }
                 };
             }
+            if (!student.gradesBySubject[selectedSubject][settings.activeSemester]) {
+                 student.gradesBySubject[selectedSubject][settings.activeSemester] = {
+                    bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+                    kts: null, sas: null, nilaiUp: null
+                };
+            }
             targetSemesterData = { ...student.gradesBySubject[selectedSubject][settings.activeSemester] };
         }
 
         if (chapter === 'kts') targetSemesterData.kts = value;
         else if (chapter === 'sas') targetSemesterData.sas = value;
         else if (chapter === 'up') targetSemesterData.nilaiUp = value;
-        else if (field) targetSemesterData[chapter][field] = value;
+        else if (field) {
+            // Ensure chapter object exists
+            if (!targetSemesterData[chapter]) {
+                targetSemesterData[chapter] = { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null };
+            }
+            targetSemesterData[chapter][field] = value;
+        }
 
         if (isPAI) {
             newGrades[settings.activeSemester] = targetSemesterData;
@@ -443,7 +479,7 @@ export const App: React.FC = () => {
               if (visible[c]) {
                   const fields = activeFields[c];
                   fields.forEach(f => {
-                      row[`${c.replace('bab','TP').toUpperCase()}_${f.toUpperCase()}`] = grades[c][f];
+                      row[`${c.replace('bab','TP').toUpperCase()}_${f.toUpperCase()}`] = grades[c]?.[f]; // Safe access
                   });
               }
           });
@@ -489,7 +525,7 @@ export const App: React.FC = () => {
           const row = [idx + 1, s.name];
           chapters.forEach(c => {
               const fields = activeFields[c];
-              if (fields.length > 0) fields.forEach(f => row.push(grades[c][f] ?? '-'));
+              if (fields.length > 0) fields.forEach(f => row.push(grades[c]?.[f] ?? '-')); // Safe access
               else row.push('-');
           });
           row.push(grades.kts ?? '-');
@@ -692,7 +728,7 @@ export const App: React.FC = () => {
                                     <option value="genap">Semester Genap</option>
                                 </select>
                                 <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
-                                    {userData?.classes?.length > 0 ? userData.classes.map((c: string) => <option key={c} value={c}>{c}</option>) : Array.from(new Set(students.map(s => s.kelas))).sort().map(c => <option key={c} value={c}>{c}</option>)}
+                                    {availableClassOptions.length > 0 ? availableClassOptions.map((c: string) => <option key={c} value={c}>{c}</option>) : <option value="">Tidak ada kelas</option>}
                                 </select>
                                 <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
                                     {userData?.subject && <option value={userData.subject}>{userData.subject}</option>}
@@ -702,7 +738,6 @@ export const App: React.FC = () => {
                                 {activeTab === 'dashboard' && (
                                   <>
                                     <div className="h-8 w-px bg-gray-300 mx-1 hidden xl:block"></div>
-                                    {/* Manual Save is now a trigger for Safe Sync */}
                                     <button 
                                         onClick={handleSync} 
                                         className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all ${isSyncing ? 'bg-gray-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
@@ -720,7 +755,22 @@ export const App: React.FC = () => {
                              </div>
                          </div>
                          <div className="flex-1 overflow-auto custom-scrollbar bg-white/80">
-                             <GradeTable students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} selectedSemester={settings.activeSemester} subjectName={selectedSubject} activeFieldsMap={getActiveFieldsMap()} visibleChapters={getVisibleChapters()} visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} academicYear={settings.academicYear} onUpdateScore={handleUpdateScore} isEditable={true} showUpColumn={activeTab === 'nilai_up'} upRanges={settings.upRanges} unlockedCells={new Set()} getScoreInputClass={() => ''} />
+                             <GradeTable 
+                                students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} 
+                                selectedSemester={settings.activeSemester} 
+                                subjectName={selectedSubject} 
+                                activeFieldsMap={getActiveFieldsMap()} 
+                                visibleChapters={getVisibleChapters()} 
+                                visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} 
+                                assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} 
+                                academicYear={settings.academicYear} 
+                                onUpdateScore={handleUpdateScore} 
+                                isEditable={true} 
+                                showUpColumn={activeTab === 'nilai_up'} 
+                                upRanges={settings.upRanges} 
+                                unlockedCells={new Set()} 
+                                getScoreInputClass={() => ''} 
+                             />
                              {activeTab === 'dashboard' && (
                                 <AssessmentHistory history={assessmentHistory.filter(h => h.targetClass === selectedClass && h.semester === settings.activeSemester && (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')))} currentSemester={settings.activeSemester} onEdit={(session) => { setEditingSession(session); setIsInputModalOpen(true); }} onDelete={handleDeleteHistory} onResetHistory={handleResetHistory} />
                              )}
@@ -737,17 +787,17 @@ export const App: React.FC = () => {
                         <ExtraActivityView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} settings={settings} teachers={teachers} onUpdateSettings={handleSaveSettings} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} onSync={handleSync} userRole={userRole || 'admin'} userData={userData} />
                      </div>
                  )}
-                 {activeTab === 'students' && (
+                 {activeTab === 'students' && userRole === 'admin' && (
                      <div className="bg-white h-full flex flex-col">
                         <StudentDataTable students={students} onAdd={() => { setEditingStudent(null); setIsAddStudentModalOpen(true); }} onEdit={(s) => { setEditingStudent(s); setIsAddStudentModalOpen(true); }} onDelete={handleDeleteStudent} onImport={handleImportStudents} onSync={handleSync} />
                      </div>
                  )}
-                 {activeTab === 'teachers' && (
+                 {activeTab === 'teachers' && userRole === 'admin' && (
                      <div className="bg-white h-full flex flex-col">
                         <TeacherDataView teachers={teachers} setTeachers={saveTeacher => { if (teachers.some(t => t.id === saveTeacher.id)) { setTeachers(prev => prev.map(t => t.id === saveTeacher.id ? saveTeacher : t)); } else { setTeachers(prev => [...prev, saveTeacher]); } api.saveTeacher(saveTeacher); }} availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} availableSubjects={settings.subjects} onSync={handleSync} />
                      </div>
                  )}
-                 {activeTab === 'monitor_teachers' && (
+                 {activeTab === 'monitor_teachers' && userRole === 'admin' && (
                      <div className="bg-white h-full flex flex-col">
                         <TeacherMonitoringView teachers={teachers} history={assessmentHistory} currentSemester={settings.activeSemester} availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} />
                      </div>
@@ -762,7 +812,7 @@ export const App: React.FC = () => {
                         <MidSemesterReportView students={students} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} />
                      </div>
                  )}
-                 {activeTab === 'reset' && (
+                 {activeTab === 'reset' && userRole === 'admin' && (
                      <div className="bg-white h-full flex flex-col">
                         <ResetDataView availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} currentSemester={settings.activeSemester} onResetClass={handleResetClass} />
                      </div>
