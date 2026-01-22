@@ -91,7 +91,9 @@ const TeacherDataView: React.FC<TeacherDataViewProps> = ({
       };
     }
     
+    // Updates main state in App.tsx
     setTeachers(teacherToSave); 
+    
     setIsModalOpen(false);
     setEditingTeacher(null);
     setFormData(initialFormState);

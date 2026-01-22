@@ -186,20 +186,29 @@ export const App: React.FC = () => {
   }, []);
 
   // --- ACCESS CONTROL LOGIC ---
+  const currentTeacher = useMemo(() => {
+      if (userRole === 'teacher' && userData) {
+          // Find latest teacher data from state, not just initial login data
+          return teachers.find(t => t.name === userData.name);
+      }
+      return null;
+  }, [userRole, userData, teachers]);
+
   const canAccessWaliKelas = useMemo(() => {
       if (userRole === 'admin') return true;
-      if (userRole === 'teacher' && userData?.waliKelas) return true;
+      // Check if current logged-in teacher has 'waliKelas' property set
+      if (currentTeacher?.waliKelas) return true;
       return false;
-  }, [userRole, userData]);
+  }, [userRole, currentTeacher]);
 
   const canAccessExtra = useMemo(() => {
       if (userRole === 'admin') return true;
-      if (userRole === 'teacher') {
-          // Check if user is a coach in any existing extra
-          return settings.extracurriculars?.some(ex => ex.coach === userData?.name);
+      if (currentTeacher) {
+          // Check if user is a coach in any existing extra settings
+          return settings.extracurriculars?.some(ex => ex.coach === currentTeacher.name);
       }
       return false;
-  }, [userRole, userData, settings.extracurriculars]);
+  }, [userRole, currentTeacher, settings.extracurriculars]);
 
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
@@ -209,7 +218,9 @@ export const App: React.FC = () => {
         if (teacher) {
             setUserData(teacher);
             setSelectedSubject(teacher.subject);
-            if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
+            // Auto-select their class if they are Wali Kelas, otherwise first class
+            if (teacher.waliKelas) setSelectedClass(teacher.waliKelas);
+            else if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
         } else {
             setUserData({ name: data.name, classes: [], subject: 'Mapel Umum', nip: '-' }); 
         }
@@ -628,12 +639,17 @@ export const App: React.FC = () => {
                 <SectionLabel label="Monitoring" />
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
                 <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
+                
                 <SectionLabel label="Laporan" />
-                <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
-                <SectionLabel label="Sistem" />
-                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
+                {canAccessWaliKelas && (
+                    <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                )}
+                
                 {userRole === 'admin' && (
                     <>
+                        <SectionLabel label="Sistem" />
+                        <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
+                        
                         <SectionLabel label="Admin Master" />
                         <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} />
                         <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} />
@@ -748,7 +764,7 @@ export const App: React.FC = () => {
                         <ResetDataView availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} currentSemester={settings.activeSemester} onResetClass={handleResetClass} />
                      </div>
                  )}
-                 {activeTab === 'settings' && (
+                 {activeTab === 'settings' && userRole === 'admin' && (
                      <div className="bg-white h-full flex flex-col">
                         <SettingsView settings={settings} teachers={teachers} onSaveSettings={handleSaveSettings} />
                      </div>
