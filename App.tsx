@@ -919,8 +919,12 @@ const App: React.FC = () => {
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
                 <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
                 
-                <SectionLabel label="Laporan" />
-                <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                {isWaliKelas && (
+                    <>
+                        <SectionLabel label="Laporan" />
+                        <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                    </>
+                )}
                 
                 {isAdmin && (
                     <>
@@ -1128,7 +1132,7 @@ const App: React.FC = () => {
                      />
                  )}
 
-                 {activeTab === 'rapor_sisipan' && (
+                 {activeTab === 'rapor_sisipan' && isWaliKelas && (
                      <div className="flex-1 overflow-hidden h-full flex flex-col bg-white">
                          <div className="px-6 py-4 border-b border-gray-200 bg-white/80 backdrop-blur-md sticky top-0 z-10">
                              <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
