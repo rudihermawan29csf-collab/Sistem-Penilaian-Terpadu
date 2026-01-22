@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
@@ -28,7 +29,7 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, Loader2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -111,6 +112,7 @@ const defaultSettings: AppSettings = {
 
 export const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false); // Safety flag
   const [userRole, setUserRole] = useState<'admin' | 'teacher' | 'student' | 'leader' | null>(null);
   const [userData, setUserData] = useState<any>(null);
 
@@ -128,6 +130,7 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false); // Sync loading state
   
   // Teacher/View Context State
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -148,7 +151,7 @@ export const App: React.FC = () => {
       setLoading(true);
       const data = await api.fetchInitialData();
       if (data) {
-        if (data.students) setStudents(data.students);
+        if (data.students && data.students.length > 0) setStudents(data.students);
         if (data.teachers) setTeachers(data.teachers);
         if (data.history) setAssessmentHistory(data.history);
         if (data.settings) {
@@ -170,11 +173,33 @@ export const App: React.FC = () => {
         if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
         if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
         if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
+        
+        // Critical: Only set this to true if we successfully loaded data
+        setIsDataLoaded(true);
+      } else {
+        console.error("Gagal memuat data dari server. Menggunakan data default (Bahaya untuk Sync).");
+        // We do NOT set isDataLoaded to true here.
       }
       setLoading(false);
     };
     loadData();
   }, []);
+
+  // --- ACCESS CONTROL LOGIC ---
+  const canAccessWaliKelas = useMemo(() => {
+      if (userRole === 'admin') return true;
+      if (userRole === 'teacher' && userData?.waliKelas) return true;
+      return false;
+  }, [userRole, userData]);
+
+  const canAccessExtra = useMemo(() => {
+      if (userRole === 'admin') return true;
+      if (userRole === 'teacher') {
+          // Check if user is a coach in any existing extra
+          return settings.extracurriculars?.some(ex => ex.coach === userData?.name);
+      }
+      return false;
+  }, [userRole, userData, settings.extracurriculars]);
 
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
@@ -251,6 +276,7 @@ export const App: React.FC = () => {
   };
 
   const handleManualSave = () => {
+      // Trigger granular save notification only (data is saved on change)
       setShowSaveSuccess(true);
       setTimeout(() => setShowSaveSuccess(false), 2000);
   };
@@ -350,6 +376,27 @@ export const App: React.FC = () => {
   };
 
   const handleSync = async () => {
+      // 1. Safety Check: Is data loaded?
+      if (!isDataLoaded) {
+          alert("PERHATIAN: Data dari server belum termuat sempurna. \n\nJANGAN melakukan sinkronisasi sekarang karena berisiko menghapus data yang ada di server dengan data kosong. \n\nSolusi: Silakan REFRESH halaman ini sampai data muncul, baru lakukan simpan.");
+          return;
+      }
+
+      // 2. Safety Check: Are there suspicious student counts?
+      if (students.length === 0 || (students.length < 20 && !window.confirm("Peringatan: Jumlah siswa sangat sedikit (" + students.length + "). Apakah Anda yakin ingin menimpa database server?"))) {
+          if (!window.confirm("Batalkan sinkronisasi?")) {
+              // User insists on proceeding
+          } else {
+              return;
+          }
+      }
+
+      // 3. Confirmation
+      if (!window.confirm("Konfirmasi Sinkronisasi:\n\nApakah Anda yakin ingin menyimpan seluruh data lokal ke server? Data di Google Sheet akan diperbarui sesuai tampilan aplikasi saat ini.")) {
+          return;
+      }
+
+      setIsSyncing(true);
       const success = await api.syncFullData(
           students,
           teachers,
@@ -359,10 +406,12 @@ export const App: React.FC = () => {
           subjectChapterConfigs,
           subjectFieldConfigs
       );
+      setIsSyncing(false);
+
       if (success) {
-          alert('Data berhasil disinkronisasi ke server database utama.');
+          alert('Data berhasil disinkronisasi dan diamankan ke server database utama.');
       } else {
-          alert('Gagal melakukan sinkronisasi. Cek koneksi internet.');
+          alert('Gagal melakukan sinkronisasi. Mohon cek koneksi internet dan coba lagi.');
       }
   };
 
@@ -567,9 +616,15 @@ export const App: React.FC = () => {
                 <SectionLabel label="Menu Utama" />
                 <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} />
                 <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} />
+                
                 <SectionLabel label="Tugas Tambahan" />
-                <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
-                <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
+                {canAccessWaliKelas && (
+                    <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
+                )}
+                {canAccessExtra && (
+                    <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
+                )}
+                
                 <SectionLabel label="Monitoring" />
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
                 <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
@@ -628,8 +683,14 @@ export const App: React.FC = () => {
                                 {activeTab === 'dashboard' && (
                                   <>
                                     <div className="h-8 w-px bg-gray-300 mx-1 hidden xl:block"></div>
-                                    <button onClick={handleManualSave} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all ${showSaveSuccess ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
-                                        {showSaveSuccess ? <CheckCircle size={14} /> : <Save size={14} />} {showSaveSuccess ? 'Tersimpan' : 'Simpan Data'}
+                                    {/* Manual Save is now a trigger for Safe Sync */}
+                                    <button 
+                                        onClick={handleSync} 
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all ${isSyncing ? 'bg-gray-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                                        disabled={isSyncing}
+                                    >
+                                        {isSyncing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} 
+                                        {isSyncing ? 'Menyimpan...' : 'Simpan Data'}
                                     </button>
                                     <button onClick={handleDownloadGradeTablePDF} className="p-2.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors border border-red-200" title="Download Rekap PDF"><Printer size={18} /></button>
                                     <button onClick={handleDownloadGradeTableExcel} className="p-2.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-medium transition-colors border border-green-200" title="Download Rekap Excel"><FileSpreadsheet size={18} /></button>

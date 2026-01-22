@@ -418,6 +418,7 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
     </div>
   );
 
+  // ... (Other render functions stay same)
   const renderInputIzinTab = () => (
       <div className="animate-scale-in max-w-2xl mx-auto">
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -850,9 +851,13 @@ const WaliKelasView: React.FC<WaliKelasViewProps> = ({
         {!selectedClass ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
                 <Users size={64} className="mb-4 opacity-20" />
-                <p>Silakan pilih kelas terlebih dahulu.</p>
-                {userRole === 'teacher' && !userData?.waliKelas && (
-                    <p className="text-xs text-red-400 mt-2">Anda tidak terdaftar sebagai Wali Kelas di sistem.</p>
+                <p className="font-medium text-lg">Akses Dibatasi</p>
+                {userRole === 'teacher' && !userData?.waliKelas ? (
+                    <p className="text-sm text-red-400 mt-2 bg-red-50 px-4 py-2 rounded-lg border border-red-100">
+                        Maaf, Anda tidak terdaftar sebagai Wali Kelas di sistem ini.
+                    </p>
+                ) : (
+                    <p className="text-sm mt-2">Silakan pilih kelas terlebih dahulu.</p>
                 )}
             </div>
         ) : (
