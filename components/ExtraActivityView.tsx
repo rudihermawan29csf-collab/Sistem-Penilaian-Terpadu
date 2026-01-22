@@ -13,6 +13,7 @@ interface ExtraActivityViewProps {
   onUpdateSettings: (settings: AppSettings) => void;
   dailyAttendance: DailyAttendanceLog[];
   onSaveDailyAttendance: (log: DailyAttendanceLog) => void;
+  onSync: () => void;
   userRole?: string;
   userData?: any;
 }
@@ -26,6 +27,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
     onUpdateSettings,
     dailyAttendance,
     onSaveDailyAttendance,
+    onSync,
     userRole,
     userData
 }) => {
@@ -142,7 +144,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
       };
 
       onSaveDailyAttendance(log);
-      alert('Absensi ekstrakurikuler & dokumentasi berhasil disimpan!');
+      alert('Data tersimpan LOKAL. Jangan lupa klik tombol "Simpan ke Server" di pojok kanan atas agar data aman!');
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -335,19 +337,14 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
 
   const handleSaveGrades = () => {
       // 1. Merge localEnrolledStudents changes back into main `students` array
-      // This is efficient because we map over the main array and only replace if ID matches
       const updatedStudents = students.map(originalStudent => {
           const modifiedStudent = localEnrolledStudents.find(s => s.id === originalStudent.id);
           
           if (modifiedStudent) {
-              // This student is in the enrolled list, use their updated extra record
               return modifiedStudent;
           } else {
-              // This student is NOT in the enrolled list.
-              // We must ensure they don't have this Extra in their record (in case they were removed)
               const existingRecord = originalStudent.extracurricularRecord?.[semester] || [];
               if (existingRecord.some(e => e.activityName === selectedExtra)) {
-                  // They were removed in local state, so remove from main state
                   return {
                       ...originalStudent,
                       extracurricularRecord: {
@@ -362,7 +359,7 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
 
       onUpdateStudents(updatedStudents);
       setHasUnsavedChanges(false);
-      alert("Data penilaian dan deskripsi berhasil disimpan!");
+      alert("Data penilaian tersimpan LOKAL. Klik 'Simpan ke Server' untuk permanen.");
   };
 
   const handleSaveCoach = () => {
@@ -399,11 +396,9 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
 
   const toggleSelectAll = () => {
       if (selectedStudentIds.length === studentsInModalClass.length) {
-          // Deselect students ONLY from the current class view, keep others
           const currentClassIds = studentsInModalClass.map(s => s.id);
           setSelectedStudentIds(prev => prev.filter(id => !currentClassIds.includes(id)));
       } else {
-          // Select all from current class + keep existing
           const currentClassIds = studentsInModalClass.map(s => s.id);
           setSelectedStudentIds(prev => [...Array.from(new Set([...prev, ...currentClassIds]))]);
       }
@@ -422,6 +417,16 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
             <p className="text-sm text-gray-500 mt-1">Input nilai, deskripsi, dan absensi kegiatan pengembangan diri.</p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
+            {/* Added Save to Server Button */}
+            <button 
+                onClick={onSync}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-bold shadow-md animate-pulse"
+                title="Simpan Data ke Server Google Sheets"
+            >
+                <CloudUpload size={16} />
+                <span className="hidden sm:inline">Simpan ke Server</span>
+            </button>
+
             <select 
                 value={selectedExtra} 
                 onChange={(e) => { setSelectedExtra(e.target.value); setIsEditingCoach(false); setAttendanceSubTab('input'); }} 
@@ -461,10 +466,12 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
                 </p>
             </div>
         ) : (
+            // ... (Existing Content Logic - Render either Grading or Attendance Tab) ...
             <>
             {/* --- GRADING TAB --- */}
             {mainTab === 'grading' && (
                 <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm animate-scale-in flex flex-col h-full">
+                    {/* ... (Existing Grading View) ... */}
                     <div className="bg-purple-50 px-6 py-3 border-b border-purple-100 flex justify-between items-center shrink-0">
                         <div className="flex items-center gap-4">
                             <h3 className="font-bold text-purple-800">{localEnrolledStudents.length} Peserta Terdaftar</h3>
@@ -604,7 +611,6 @@ const ExtraActivityView: React.FC<ExtraActivityViewProps> = ({
             {/* --- ATTENDANCE TAB --- */}
             {mainTab === 'attendance' && (
                 <div className="space-y-6 animate-scale-in">
-                    {/* ... (Previous Attendance Content) ... */}
                     {/* Sub Navigation */}
                     <div className="flex gap-2 border-b border-gray-200 pb-2 overflow-x-auto">
                         <button 

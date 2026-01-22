@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession, UpRange, SemesterData } from '../types';
 import { calculateChapterAverage, calculateFinalGrade } from '../utils';
 import { Info, X } from 'lucide-react';
@@ -58,7 +58,7 @@ const GradeTableRow = React.memo(({
     upRanges, 
     isEditable, 
     onUpdateScore,
-    isCellActive,
+    unlockedCells, // Changed from isCellActive function to a Set of strings
     getScoreInputClass 
 }: any) => {
     
@@ -80,6 +80,9 @@ const GradeTableRow = React.memo(({
         onUpdateScore(student.id, chapter, field, numVal);
     };
 
+    // Helper to check set
+    const isUnlocked = (key: string) => isEditable && (showUpColumn ? key === 'up' : unlockedCells.has(key));
+
     return (
         <tr className="group hover:bg-blue-50/30 transition-colors border-b border-gray-50">
             <td className="p-2 text-center text-xs text-gray-400 font-medium sticky left-0 bg-white group-hover:bg-blue-50/30 border-r border-gray-100 z-10">{index + 1}</td>
@@ -91,7 +94,8 @@ const GradeTableRow = React.memo(({
                 return (
                 <React.Fragment key={chap.key}>
                     {!showUpColumn && fieldsToShow.map((f: any) => {
-                        const unlocked = isCellActive(chap.key, f);
+                        const cellKey = `${chap.key}-${f}`;
+                        const unlocked = isUnlocked(cellKey);
                         return (
                         <td key={f} className={`p-1 border-r border-gray-50 text-center ${unlocked ? 'bg-blue-50/30' : ''}`}>
                             {unlocked ? (
@@ -114,11 +118,11 @@ const GradeTableRow = React.memo(({
                 </React.Fragment>
             )})}
             
-            <td className={`p-1 border-r border-gray-50 text-center ${isCellActive('kts', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
-                {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, 'kts', null)} className={getScoreInputClass(semesterData.kts, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.kts ?? '-'}</span>}
+            <td className={`p-1 border-r border-gray-50 text-center ${isUnlocked('kts') && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
+                {isUnlocked('kts') && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, 'kts', null)} className={getScoreInputClass(semesterData.kts, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.kts ?? '-'}</span>}
             </td>
-            <td className={`p-1 border-r border-gray-100 text-center ${isCellActive('sas', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
-                {isCellActive('sas', null) && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, 'sas', null)} className={getScoreInputClass(semesterData.sas, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.sas ?? '-'}</span>}
+            <td className={`p-1 border-r border-gray-100 text-center ${isUnlocked('sas') && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
+                {isUnlocked('sas') && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, 'sas', null)} className={getScoreInputClass(semesterData.sas, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.sas ?? '-'}</span>}
             </td>
             
             <td className={`p-2 border-l border-gray-200 text-center font-bold text-sm ${!showUpColumn ? 'sticky right-0 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-slate-50 group-hover:bg-blue-100/50' : 'bg-blue-50/50'} ${finalGrade && finalGrade < 75 ? 'text-red-600' : 'text-slate-900'}`}>
@@ -169,20 +173,33 @@ const GradeTable: React.FC<GradeTableProps> = ({
 
   const chapters = allChapters.filter(c => visibleChapters[c.key]);
 
-  const isCellActive = useCallback((chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null) => {
-    if (!isEditable) return false;
-    if (chapter === 'up') return true; 
+  // Transform assessmentHistory into a simple Set of unlocked keys
+  // Format: "bab1-f1", "kts", "sas"
+  // This is much faster and reliable than passing a closure function
+  const unlockedCells = useMemo(() => {
+      const set = new Set<string>();
+      if (!isEditable) return set;
+      
+      if (showUpColumn) {
+          set.add('up');
+          return set;
+      }
 
-    return assessmentHistory.some(h => {
-        const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
-        if (historySubject !== subjectName) return false;
+      assessmentHistory.forEach(h => {
+          // Double check subject to be safe, although parent component filters it
+          const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
+          if (historySubject !== subjectName) return;
 
-        if (h.type === 'bab') return h.chapterKey === chapter && h.formativeKey === field;
-        if (h.type === 'kts') return chapter === 'kts';
-        if (h.type === 'sas') return chapter === 'sas';
-        return false;
-    });
-  }, [isEditable, assessmentHistory, subjectName]);
+          if (h.type === 'bab' && h.chapterKey && h.formativeKey) {
+              set.add(`${h.chapterKey}-${h.formativeKey}`);
+          } else if (h.type === 'kts') {
+              set.add('kts');
+          } else if (h.type === 'sas') {
+              set.add('sas');
+          }
+      });
+      return set;
+  }, [assessmentHistory, isEditable, showUpColumn, subjectName]);
 
   const getSessionForHeader = (chapter: ChapterKey | 'kts' | 'sas', field: FormativeKey | null) => {
       return assessmentHistory.find(h => {
@@ -326,7 +343,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
                     upRanges={upRanges}
                     isEditable={isEditable}
                     onUpdateScore={onUpdateScore}
-                    isCellActive={isCellActive}
+                    unlockedCells={unlockedCells}
                     getScoreInputClass={getScoreInputClass}
                  />
              ))}

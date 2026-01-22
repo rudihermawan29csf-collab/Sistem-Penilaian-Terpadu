@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, Teacher, AppSettings, GradingSession, ChapterKey, FormativeKey, 
   SemesterKey, SemesterData, DailyAttendanceLog 
@@ -29,33 +29,32 @@ import GuideModal from './components/GuideModal';
 
 import { 
   LayoutDashboard, Users, GraduationCap, Settings, LogOut, 
-  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, ChevronLeft, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle, WifiOff, RefreshCcw, Cloud, CloudOff, HardDrive, RefreshCw as SyncIcon, CloudUpload
+  Menu, X, ClipboardList, BookOpen, AlertCircle, Database, Calendar, Printer, Award, School, ChevronRight, Star, RefreshCw, Download, FileSpreadsheet, Save, CheckCircle, HelpCircle
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { calculateFinalGrade, createEmptySemesterData } from './utils';
+import { calculateFinalGrade } from './utils';
 
 // --- Sidebar Components ---
-const SectionLabel = ({ label, collapsed }: { label: string, collapsed?: boolean }) => (
-  <div className={`px-3 py-2 text-xs font-bold text-indigo-300/70 uppercase tracking-wider mt-4 first:mt-2 transition-opacity duration-200 ${collapsed ? 'opacity-0 h-0 overflow-hidden py-0 mt-0' : 'opacity-100'}`}>
+const SectionLabel = ({ label }: { label: string }) => (
+  <div className="px-3 py-2 text-xs font-bold text-indigo-300/70 uppercase tracking-wider mt-4 first:mt-2">
     {label}
   </div>
 );
 
-const SidebarItem = ({ id, label, icon: Icon, active, onClick, collapsed }: { id: string, label: string, icon: React.ElementType, active: boolean, onClick: () => void, collapsed?: boolean }) => (
+const SidebarItem = ({ id, label, icon: Icon, active, onClick }: { id: string, label: string, icon: React.ElementType, active: boolean, onClick: () => void }) => (
   <button 
     onClick={onClick}
-    title={collapsed ? label : ''}
-    className={`w-full flex items-center ${collapsed ? 'justify-center px-0' : 'space-x-3 px-3'} py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
+    className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
         active 
         ? 'bg-white/10 text-white shadow-sm border border-white/10' 
         : 'text-indigo-100 hover:bg-white/5 hover:text-white'
     }`}
   >
-    <Icon size={20} className={`transition-transform duration-200 ${active ? 'text-white' : 'text-indigo-300 group-hover:text-white'} ${collapsed ? '' : active ? 'scale-110' : ''}`} />
-    {!collapsed && <span>{label}</span>}
-    {active && !collapsed && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>}
+    <Icon size={18} className={`transition-transform duration-200 ${active ? 'scale-110 text-white' : 'text-indigo-300 group-hover:text-white'}`} />
+    <span>{label}</span>
+    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>}
   </button>
 );
 
@@ -108,18 +107,11 @@ const defaultSettings: AppSettings = {
       bab5: { f1: true, f2: true, f3: true, f4: true, f5: true, sum: true },
   },
   waliKelasMap: {},
-  extracurriculars: [],
-  lastUpdated: 0
+  extracurriculars: []
 };
-
-const LOCAL_STORAGE_KEY = 'igrade_data_backup_v2';
-const SESSION_STORAGE_KEY = 'igrade_user_session_v2'; 
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [offlineMode, setOfflineMode] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'local' | 'disconnected'>('disconnected');
-  const [showOfflineBanner, setShowOfflineBanner] = useState(true); 
   const [userRole, setUserRole] = useState<'admin' | 'teacher' | 'student' | 'leader' | null>(null);
   const [userData, setUserData] = useState<any>(null);
 
@@ -135,11 +127,8 @@ const App: React.FC = () => {
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [isGuideOpen, setIsGuideOpen] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   
   // Teacher/View Context State
   const [selectedClass, setSelectedClass] = useState<string>('');
@@ -151,161 +140,20 @@ const App: React.FC = () => {
   // Admin Specific State
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  // --- ACCESS CONTROL MEMO ---
-  const isWaliKelas = useMemo(() => {
-      if (userRole === 'admin') return true;
-      if (userRole === 'teacher' && userData?.waliKelas) return true;
-      return false;
-  }, [userRole, userData]);
-
-  const isCoach = useMemo(() => {
-      if (userRole === 'admin') return true;
-      if (userRole === 'teacher' && userData?.name) {
-          // Check if teacher name exists in any extracurricular coach field
-          return settings.extracurriculars?.some(e => e.coach === userData.name);
-      }
-      return false;
-  }, [userRole, userData, settings.extracurriculars]);
-
-  const isAdmin = userRole === 'admin';
-
-  // --- COMPUTED PROPERTIES FOR TEACHER MULTI-SUBJECT SUPPORT ---
-  const teacherSubjects = useMemo(() => {
-      if (userRole === 'teacher' && userData?.name) {
-          return Array.from(new Set(
-              teachers.filter(t => t.name === userData.name).map(t => t.subject)
-          )).sort();
-      }
-      return [];
-  }, [userRole, userData, teachers]);
-
-  const teacherClassesForSelectedSubject = useMemo(() => {
-      if (userRole === 'teacher' && userData?.name) {
-          const specificEntry = teachers.find(t => t.name === userData.name && t.subject === selectedSubject);
-          if (specificEntry) return specificEntry.classes;
-          const allClasses = teachers.filter(t => t.name === userData.name).flatMap(t => t.classes);
-          return Array.from(new Set(allClasses)).sort();
-      }
-      return Array.from(new Set(students.map(s => s.kelas))).sort();
-  }, [userRole, userData, teachers, selectedSubject, students]);
-
+  // --- INITIALIZATION ---
   useEffect(() => {
-      if (userRole === 'teacher' && teacherClassesForSelectedSubject.length > 0) {
-          if (!teacherClassesForSelectedSubject.includes(selectedClass)) {
-              setSelectedClass(teacherClassesForSelectedSubject[0]);
-          }
-      }
-  }, [selectedSubject, teacherClassesForSelectedSubject, userRole, selectedClass]);
-
-
-  // --- LOCAL STORAGE HELPERS ---
-  const saveToLocalStorage = useCallback(() => {
-      const dataToSave = {
-          students,
-          teachers,
-          history: assessmentHistory,
-          settings, 
-          dailyAttendance,
-          chapterConfigs: subjectChapterConfigs,
-          fieldConfigs: subjectFieldConfigs,
-          timestamp: new Date().getTime() 
-      };
-      try {
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
-      } catch (e) {
-          console.warn("Storage full or unavailable", e);
-      }
-  }, [students, teachers, assessmentHistory, settings, dailyAttendance, subjectChapterConfigs, subjectFieldConfigs]);
-
-  useEffect(() => {
-      if (loading) return; 
-      const timer = setTimeout(() => {
-          saveToLocalStorage();
-      }, 2000);
-      return () => clearTimeout(timer);
-  }, [students, teachers, assessmentHistory, settings, dailyAttendance, subjectChapterConfigs, subjectFieldConfigs, saveToLocalStorage, loading]);
-
-  useEffect(() => {
-      if (userRole) {
-          const sessionData = {
-              role: userRole,
-              data: userData,
-              class: selectedClass,
-              subject: selectedSubject,
-              tab: activeTab
-          };
-          try {
-              localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
-          } catch(e) { console.warn("Failed to save session", e); }
-      } else if (!loading) {
-          localStorage.removeItem(SESSION_STORAGE_KEY);
-      }
-  }, [userRole, userData, selectedClass, selectedSubject, activeTab, loading]);
-
-
-  // --- INITIALIZATION & SYNC LOGIC ---
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setOfflineMode(false);
-    
-    // 1. Load Local Storage
-    let localData: any = null;
-    try {
-        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (stored) {
-            localData = JSON.parse(stored);
-        }
-    } catch (e) { console.warn("Failed to read local storage"); }
-
-    // 2. Load API Data
-    const apiData = await api.fetchInitialData();
-    
-    let finalData = null;
-    let status: 'connected' | 'local' | 'disconnected' = 'disconnected';
-
-    if (apiData) {
-        // If API data exists, we are connected.
-        status = 'connected';
-        
-        if (localData && (localData.settings?.lastUpdated || 0) > (apiData.settings?.lastUpdated || 0)) {
-            console.log("Using Local Data (Newer than Server) - Pending Sync");
-            finalData = localData;
-        } else {
-            console.log("Using Server Data");
-            finalData = apiData;
-        }
-    } else if (localData) {
-        // Fallback to local only if API failed
-        finalData = localData;
-        status = 'local';
-        setOfflineMode(true);
-        setShowOfflineBanner(true);
-    } else {
-        setConnectionStatus('disconnected');
-        setOfflineMode(true);
-        setShowOfflineBanner(true);
-    }
-
-    if (finalData) {
-        setConnectionStatus(status);
-        
-        if (finalData.students) {
-            const sanitizedStudents = (finalData.students as Student[]).map(s => ({
-                ...s,
-                gradesBySubject: s.gradesBySubject || {},
-                grades: s.grades || {
-                    ganjil: createEmptySemesterData(),
-                    genap: createEmptySemesterData()
-                }
-            }));
-            setStudents(sanitizedStudents);
-        }
-
-        if (finalData.teachers) setTeachers(finalData.teachers);
-        if (finalData.history) setAssessmentHistory(finalData.history);
-        if (finalData.settings) {
-            let loadedSettings = finalData.settings;
+    const loadData = async () => {
+      setLoading(true);
+      const data = await api.fetchInitialData();
+      if (data) {
+        if (data.students) setStudents(data.students);
+        if (data.teachers) setTeachers(data.teachers);
+        if (data.history) setAssessmentHistory(data.history);
+        if (data.settings) {
+            let loadedSettings = data.settings;
             if (Array.isArray(loadedSettings.kokurikulerProjects)) {
                 loadedSettings.kokurikulerProjects = {
                     ganjil: loadedSettings.kokurikulerProjects,
@@ -318,88 +166,28 @@ const App: React.FC = () => {
                     genap: loadedSettings.midSemesterDate
                 };
             }
-            if (!loadedSettings.extracurriculars) loadedSettings.extracurriculars = [];
-            if (!loadedSettings.subjects) loadedSettings.subjects = [];
-
             setSettings(prev => ({ ...prev, ...loadedSettings }));
         }
-        if (finalData.chapterConfigs) setSubjectChapterConfigs(finalData.chapterConfigs);
-        if (finalData.fieldConfigs) setSubjectFieldConfigs(finalData.fieldConfigs);
-        if (finalData.dailyAttendance) setDailyAttendance(finalData.dailyAttendance);
-    }
-
-    try {
-        const savedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-        if (savedSession) {
-            const sess = JSON.parse(savedSession);
-            if (sess.role && sess.data) {
-                setUserRole(sess.role);
-                setUserData(sess.data);
-                if (sess.class) setSelectedClass(sess.class);
-                if (sess.subject) setSelectedSubject(sess.subject);
-                if (sess.tab) setActiveTab(sess.tab);
-            }
-        }
-    } catch(e) { console.warn("Failed to restore session"); }
-
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  const handleRetryConnection = () => {
-      loadData();
-  };
-
-  const handleForceUpload = async () => {
-      if(!window.confirm("Konfirmasi Upload: \nData yang ada di laptop ini akan disimpan ke Server (Google Sheets). Lanjutkan?")) return;
-      
-      setSyncMessage("Mengupload data ke server...");
-      
-      const now = new Date().getTime();
-      const newSettings = { ...settings, lastUpdated: now };
-      setSettings(newSettings);
-
-      const success = await api.syncFullData(
-          students,
-          teachers,
-          assessmentHistory,
-          newSettings,
-          dailyAttendance,
-          subjectChapterConfigs,
-          subjectFieldConfigs
-      );
-
-      if (success) {
-          alert("Berhasil! Data telah tersimpan di server.");
-          setSyncMessage(null);
-          setConnectionStatus('connected');
-          setOfflineMode(false);
-      } else {
-          alert("Gagal upload. Periksa koneksi internet atau pastikan URL Script API di 'services/api.ts' sudah benar.");
-          setSyncMessage(null);
+        if (data.chapterConfigs) setSubjectChapterConfigs(data.chapterConfigs);
+        if (data.fieldConfigs) setSubjectFieldConfigs(data.fieldConfigs);
+        if (data.dailyAttendance) setDailyAttendance(data.dailyAttendance);
       }
-  };
-
-  const updateTimestamp = () => {
-      const now = new Date().getTime();
-      setSettings(prev => ({ ...prev, lastUpdated: now }));
-      return now;
-  };
+      setLoading(false);
+    };
+    loadData();
+  }, []);
 
   // --- AUTH HANDLERS ---
   const handleLogin = (role: 'admin' | 'teacher' | 'student' | 'leader', data?: any) => {
     setUserRole(role);
     if (role === 'teacher') {
-        setUserData(data); 
-        const teacherRows = teachers.filter(t => t.name === data.name);
-        if (teacherRows.length > 0) {
-            setSelectedSubject(teacherRows[0].subject);
-            if (teacherRows[0].classes.length > 0) setSelectedClass(teacherRows[0].classes[0]);
+        const teacher = teachers.find(t => t.name === data.name);
+        if (teacher) {
+            setUserData(teacher);
+            setSelectedSubject(teacher.subject);
+            if (teacher.classes.length > 0) setSelectedClass(teacher.classes[0]);
         } else {
-            setSelectedSubject('Mapel Umum');
+            setUserData({ name: data.name, classes: [], subject: 'Mapel Umum', nip: '-' }); 
         }
         setActiveTab('dashboard'); 
     } else if (role === 'admin') {
@@ -420,7 +208,6 @@ const App: React.FC = () => {
     setUserData(null);
     setActiveTab('dashboard');
     setIsSidebarOpen(false);
-    localStorage.removeItem(SESSION_STORAGE_KEY); 
   };
 
   // --- DATA HANDLERS ---
@@ -457,48 +244,16 @@ const App: React.FC = () => {
             student.gradesBySubject![selectedSubject][settings.activeSemester] = targetSemesterData;
         }
         
-        // Optimistic update API call
-        api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData).then(success => {
-            if (success) {
-                setConnectionStatus('connected');
-                setOfflineMode(false); // Ensure we switch out of offline mode if a save works
-            } else if (connectionStatus === 'connected') {
-                // Only downgrade status if we were connected
-                // But given improved postData, this is less likely to be false negative
-                setConnectionStatus('local');
-            }
-        });
-        
+        api.saveGrade(student.id, selectedSubject, settings.activeSemester, targetSemesterData);
         return student;
       }
       return student;
     }));
-    
-    updateTimestamp();
   };
 
-  const handleManualSave = async () => {
-      // FORCE SAVE ATTEMPT regardless of current status display
-      const ts = updateTimestamp();
-      const success = await api.saveSettings({...settings, lastUpdated: ts});
-      
-      if (success) {
-          setConnectionStatus('connected');
-          setOfflineMode(false);
-          setShowSaveSuccess(true);
-          setTimeout(() => setShowSaveSuccess(false), 2000);
-      } else {
-          // Only prompt for force upload if simple save failed AND we are supposedly local/offline
-          if (connectionStatus === 'local' || connectionStatus === 'disconnected') {
-              if(window.confirm("Penyimpanan standar tidak merespon. Apakah Anda ingin mencoba Upload Paksa untuk memastikan data tersimpan?")) {
-                  handleForceUpload();
-              }
-          } else {
-              // If we thought we were connected but it failed
-              alert("Gagal menyimpan. Cek koneksi internet.");
-              setConnectionStatus('disconnected');
-          }
-      }
+  const handleManualSave = () => {
+      setShowSaveSuccess(true);
+      setTimeout(() => setShowSaveSuccess(false), 2000);
   };
 
   const handleSaveSession = (session: GradingSession) => {
@@ -507,16 +262,14 @@ const App: React.FC = () => {
     } else {
         setAssessmentHistory(prev => [...prev, session]);
     }
-    updateTimestamp();
-    api.saveHistory(session).then(ok => { if(ok) setConnectionStatus('connected'); });
+    api.saveHistory(session);
     setEditingSession(null);
     setIsInputModalOpen(false);
   };
 
   const handleDeleteHistory = (id: string) => {
       setAssessmentHistory(prev => prev.filter(h => h.id !== id));
-      updateTimestamp();
-      api.deleteHistory(id).then(ok => { if(ok) setConnectionStatus('connected'); });
+      api.deleteHistory(id);
   };
 
   const handleResetHistory = () => {
@@ -527,18 +280,16 @@ const App: React.FC = () => {
     ).map(h => h.id);
 
     setAssessmentHistory(prev => prev.filter(h => !idsToDelete.includes(h.id)));
-    updateTimestamp();
     idsToDelete.forEach(id => api.deleteHistory(id));
   };
 
   const handleSaveStudent = (student: Student) => {
-      updateTimestamp();
       if (editingStudent) {
           setStudents(prev => prev.map(s => s.id === student.id ? student : s));
-          api.updateStudent(student).then(ok => { if(ok) setConnectionStatus('connected'); });
+          api.updateStudent(student);
       } else {
           setStudents(prev => [...prev, student]);
-          api.addStudent(student).then(ok => { if(ok) setConnectionStatus('connected'); });
+          api.addStudent(student);
       }
       setIsAddStudentModalOpen(false);
       setEditingStudent(null);
@@ -546,8 +297,7 @@ const App: React.FC = () => {
 
   const handleDeleteStudent = (id: number) => {
       setStudents(prev => prev.filter(s => s.id !== id));
-      updateTimestamp();
-      api.deleteStudent(id).then(ok => { if(ok) setConnectionStatus('connected'); });
+      api.deleteStudent(id);
   };
 
   const handleImportStudents = (newStudents: Student[]) => {
@@ -561,21 +311,18 @@ const App: React.FC = () => {
           }
       });
       setStudents(mergedStudents);
-      updateTimestamp();
-      api.importStudents(newStudents).then(ok => { if(ok) setConnectionStatus('connected'); });
+      api.importStudents(newStudents);
   };
 
   const handleUpdateStudentsBulk = (updatedStudents: Student[]) => {
       setStudents(updatedStudents);
-      updateTimestamp();
       updatedStudents.forEach(s => api.updateStudent(s));
   };
 
   const handleSaveChapterConfig = (config: Record<ChapterKey, boolean>, fieldConfig: Record<ChapterKey, Record<FormativeKey, boolean>>) => {
       setSubjectChapterConfigs(prev => ({ ...prev, [selectedSubject]: config }));
       setSubjectFieldConfigs(prev => ({ ...prev, [selectedSubject]: fieldConfig }));
-      updateTimestamp();
-      api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig }).then(ok => { if(ok) setConnectionStatus('connected'); });
+      api.saveChapterConfig(selectedSubject, { visibleChapters: config, fieldConfig });
   };
 
   const handleResetClass = (className: string) => {
@@ -583,16 +330,12 @@ const App: React.FC = () => {
           if (s.kelas === className) { return s; }
           return s;
       }));
-      updateTimestamp();
-      api.resetClassGrades(className, settings.activeSemester).then(ok => { if(ok) setConnectionStatus('connected'); });
+      api.resetClassGrades(className, settings.activeSemester);
   };
 
   const handleSaveSettings = async (newSettings: AppSettings) => {
-      const now = new Date().getTime();
-      const settingsWithTs = { ...newSettings, lastUpdated: now };
-      setSettings(settingsWithTs);
-      const ok = await api.saveSettings(settingsWithTs);
-      if (ok) setConnectionStatus('connected');
+      setSettings(newSettings);
+      await api.saveSettings(newSettings);
   };
 
   const handleSaveDailyAttendance = (log: DailyAttendanceLog) => {
@@ -605,7 +348,23 @@ const App: React.FC = () => {
           }
           return [...prev, log];
       });
-      updateTimestamp();
+  };
+
+  const handleSync = async () => {
+      const success = await api.syncFullData(
+          students,
+          teachers,
+          assessmentHistory,
+          settings,
+          dailyAttendance,
+          subjectChapterConfigs,
+          subjectFieldConfigs
+      );
+      if (success) {
+          alert('Data berhasil disinkronisasi ke server database utama.');
+      } else {
+          alert('Gagal melakukan sinkronisasi. Cek koneksi internet.');
+      }
   };
 
   // --- DOWNLOAD HANDLERS (Grade Table) ---
@@ -619,9 +378,7 @@ const App: React.FC = () => {
       const data = targets.map((s, idx) => {
           const row: any = { No: idx + 1, NIS: s.nis, Nama: s.name };
           const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
-          
           if (!grades) return row;
-
           (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).forEach(c => {
               if (visible[c]) {
                   const fields = activeFields[c];
@@ -632,18 +389,11 @@ const App: React.FC = () => {
           });
           row['KTS'] = grades.kts;
           row['SAS'] = grades.sas;
-          
-          // Calculate NA
           const na = calculateFinalGrade(grades, activeFields, visible);
           row['Nilai Akhir'] = na;
-          
-          if (activeTab === 'nilai_up') {
-              row['Nilai UP'] = grades.nilaiUp;
-          }
-
+          if (activeTab === 'nilai_up') row['Nilai UP'] = grades.nilaiUp;
           return row;
       });
-
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Nilai ${selectedClass}`);
@@ -653,154 +403,78 @@ const App: React.FC = () => {
   const handleDownloadGradeTablePDF = () => {
       const targets = getFilteredStudents();
       if (targets.length === 0) return;
-
       const doc = new jsPDF({ orientation: 'l', format: 'legal' });
-      
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("REKAP NILAI AKADEMIK", 175, 15, { align: "center" });
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
+      doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.text("REKAP NILAI AKADEMIK", 175, 15, { align: "center" });
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
       doc.text(`Mata Pelajaran: ${selectedSubject}`, 14, 25);
       doc.text(`Kelas: ${selectedClass}`, 14, 30);
       doc.text(`Semester: ${settings.activeSemester === 'ganjil' ? 'Ganjil' : 'Genap'}`, 14, 35);
       doc.text(`Tahun Ajaran: ${settings.academicYear}`, 14, 40);
-
+      
       const activeFields = getActiveFieldsMap();
       const visible = getVisibleChapters();
       const chapters = (['bab1', 'bab2', 'bab3', 'bab4', 'bab5'] as ChapterKey[]).filter(c => visible[c]);
-
-      // Construct Header dynamically
       const headRow = ['No', 'Nama'];
       chapters.forEach(c => {
           const fields = activeFields[c];
-          if (fields.length > 0) {
-              fields.forEach(f => {
-                  headRow.push(`${c.replace('bab', 'TP ')} (${f === 'sum' ? 'S' : f.toUpperCase()})`);
-              });
-          } else {
-              headRow.push(c.replace('bab', 'TP '));
-          }
+          if (fields.length > 0) fields.forEach(f => headRow.push(`${c.replace('bab', 'TP ')} (${f === 'sum' ? 'S' : f.toUpperCase()})`));
+          else headRow.push(c.replace('bab', 'TP '));
       });
       headRow.push('KTS', 'SAS', 'NA');
       if (activeTab === 'nilai_up') headRow.push('UP');
-
+      
       const body = targets.map((s, idx) => {
           const grades = selectedSubject === 'Pendidikan Agama Islam' ? s.grades[settings.activeSemester] : (s.gradesBySubject?.[selectedSubject]?.[settings.activeSemester]);
           if (!grades) return [];
-
           const row = [idx + 1, s.name];
-          
           chapters.forEach(c => {
               const fields = activeFields[c];
-              if (fields.length > 0) {
-                  fields.forEach(f => {
-                      const val = grades[c][f];
-                      row.push(val !== null ? val : '-');
-                  });
-              } else {
-                  row.push('-'); 
-              }
+              if (fields.length > 0) fields.forEach(f => row.push(grades[c][f] ?? '-'));
+              else row.push('-');
           });
-
-          row.push(grades.kts !== null ? grades.kts : '-');
-          row.push(grades.sas !== null ? grades.sas : '-');
-          const na = calculateFinalGrade(grades, activeFields, visible);
-          row.push(na !== null ? na : '-');
-          
-          if (activeTab === 'nilai_up') row.push(grades.nilaiUp !== null ? grades.nilaiUp : '-');
-
+          row.push(grades.kts ?? '-');
+          row.push(grades.sas ?? '-');
+          row.push(calculateFinalGrade(grades, activeFields, visible) ?? '-');
+          if (activeTab === 'nilai_up') row.push(grades.nilaiUp ?? '-');
           return row;
       });
-
-      autoTable(doc, {
-          startY: 45,
-          head: [headRow],
-          body: body,
-          theme: 'grid',
-          styles: { fontSize: 8, cellPadding: 1 },
-          headStyles: { fillColor: [41, 128, 185], textColor: 255, halign: 'center', valign: 'middle' },
-          columnStyles: { 0: { halign: 'center', cellWidth: 10 } }
-      });
-
-      // --- SIGNATURES ---
-      let yPos = (doc as any).lastAutoTable.finalY + 10;
-      if (yPos > 170) { 
-          doc.addPage();
-          yPos = 20;
-      }
-
-      let teacherName = settings.teacherName;
-      let teacherNip = settings.teacherNip;
+      autoTable(doc, { startY: 45, head: [headRow], body: body, theme: 'grid', styles: { fontSize: 8, cellPadding: 1 }, headStyles: { fillColor: [41, 128, 185], textColor: 255, halign: 'center', valign: 'middle' }, columnStyles: { 0: { halign: 'center', cellWidth: 10 } } });
       
+      let yPos = (doc as any).lastAutoTable.finalY + 10;
+      if (yPos > 170) { doc.addPage(); yPos = 20; }
+      
+      let teacherName = settings.teacherName; let teacherNip = settings.teacherNip;
       const subjectTeacher = teachers.find(t => t.subject === selectedSubject && t.classes.includes(selectedClass));
-      if (subjectTeacher) {
-          teacherName = subjectTeacher.name;
-          teacherNip = subjectTeacher.nip;
-      } else if (selectedSubject === 'Pendidikan Agama Islam' && userData?.subject === 'Pendidikan Agama Islam') {
-          teacherName = userData.name;
-          teacherNip = userData.nip || '-';
-      }
-
+      if (subjectTeacher) { teacherName = subjectTeacher.name; teacherNip = subjectTeacher.nip; } 
+      else if (selectedSubject === 'Pendidikan Agama Islam' && userData?.subject === 'Pendidikan Agama Islam') { teacherName = userData.name; teacherNip = userData.nip || '-'; }
+      
       const date = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-      const pageWidth = doc.internal.pageSize.width;
-      const rightX = pageWidth - 60;
-      const leftX = 40;
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-
-      doc.text(`Mojokerto, ${date}`, rightX, yPos, { align: 'center' });
-      doc.text("Guru Mata Pelajaran", rightX, yPos + 5, { align: 'center' });
-
-      doc.text("Mengetahui,", leftX, yPos, { align: 'center' });
-      doc.text("Kepala Sekolah", leftX, yPos + 5, { align: 'center' });
-
+      const pageWidth = doc.internal.pageSize.width; const rightX = pageWidth - 60; const leftX = 40;
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.text(`Mojokerto, ${date}`, rightX, yPos, { align: 'center' }); doc.text("Guru Mata Pelajaran", rightX, yPos + 5, { align: 'center' });
+      doc.text("Mengetahui,", leftX, yPos, { align: 'center' }); doc.text("Kepala Sekolah", leftX, yPos + 5, { align: 'center' });
       yPos += 25;
-
-      doc.setFont("helvetica", "bold");
-      doc.text(teacherName, rightX, yPos, { align: 'center' });
-      doc.text(settings.principalName, leftX, yPos, { align: 'center' });
-
-      doc.setFont("helvetica", "normal");
-      doc.text(`NIP. ${teacherNip || '-'}`, rightX, yPos + 5, { align: 'center' });
-      doc.text(`NIP. ${settings.principalNip}`, leftX, yPos + 5, { align: 'center' });
-
+      doc.setFont("helvetica", "bold"); doc.text(teacherName, rightX, yPos, { align: 'center' }); doc.text(settings.principalName, leftX, yPos, { align: 'center' });
+      doc.setFont("helvetica", "normal"); doc.text(`NIP. ${teacherNip || '-'}`, rightX, yPos + 5, { align: 'center' }); doc.text(`NIP. ${settings.principalNip}`, leftX, yPos + 5, { align: 'center' });
       doc.save(`Nilai_${selectedSubject}_${selectedClass}.pdf`);
   };
-
-  // --- RENDER HELPERS ---
 
   const getActiveFieldsMap = () => {
     const map: Record<ChapterKey, FormativeKey[]> = { bab1: [], bab2: [], bab3: [], bab4: [], bab5: [] };
     const chapters: ChapterKey[] = ['bab1', 'bab2', 'bab3', 'bab4', 'bab5'];
     const fieldConfig = subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig;
-
     chapters.forEach(chap => {
         if (fieldConfig && fieldConfig[chap]) {
-             map[chap] = Object.entries(fieldConfig[chap])
-                .filter(([_, active]) => active)
-                .map(([f]) => f as FormativeKey);
+             map[chap] = Object.entries(fieldConfig[chap]).filter(([_, active]) => active).map(([f]) => f as FormativeKey);
         } else {
-             const relevantHistory = assessmentHistory.filter(h => 
-                h.targetClass === selectedClass && 
-                h.semester === settings.activeSemester && 
-                (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) &&
-                h.type === 'bab' && 
-                h.chapterKey === chap
-            );
+             const relevantHistory = assessmentHistory.filter(h => h.targetClass === selectedClass && h.semester === settings.activeSemester && (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.type === 'bab' && h.chapterKey === chap);
             map[chap] = relevantHistory.map(h => h.formativeKey).filter((f): f is FormativeKey => f !== undefined);
         }
     });
     return map;
   };
 
-  const getVisibleChapters = () => {
-      return subjectChapterConfigs[selectedSubject] || settings.visibleChapters;
-  };
-
-  // --- UI COMPONENTS ---
+  const getVisibleChapters = () => { return subjectChapterConfigs[selectedSubject] || settings.visibleChapters; };
 
   if (loading) {
       return (
@@ -826,7 +500,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Student View
   if (userRole === 'student' && userData) {
     return (
         <StudentDashboard 
@@ -842,7 +515,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Leader View
   if (userRole === 'leader' && userData) {
       return (
           <div className="min-h-screen bg-[#f5f5f7] flex flex-col font-sans">
@@ -867,30 +539,20 @@ const App: React.FC = () => {
       );
   }
 
-  // --- ADMIN & TEACHER LAYOUT ---
-
-  const handleSidebarClick = (id: string) => {
-      setActiveTab(id);
-      setIsSidebarOpen(false);
-  };
+  const handleSidebarClick = (id: string) => { setActiveTab(id); setIsSidebarOpen(false); };
 
   return (
     <div className="h-screen bg-[#f5f5f7] flex overflow-hidden font-sans text-gray-900">
-        
-        {/* Sidebar - Dark Indigo Theme */}
         <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#1e1b4b] border-r border-indigo-900/50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col shadow-2xl lg:shadow-none overflow-y-auto`}>
-            
             <div className="p-5">
-                {/* macOS Window Controls */}
                 <div className="flex items-center gap-2 mb-6 group">
-                    <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e] opacity-80 group-hover:opacity-100"></div>
-                    <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-[#d89e24] opacity-80 group-hover:opacity-100"></div>
-                    <div className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29] opacity-80 group-hover:opacity-100"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e]"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-[#d89e24]"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29]"></div>
                 </div>
-
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-purple-900/50">
+                        <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg">
                             <School size={20} />
                         </div>
                         <div>
@@ -906,31 +568,18 @@ const App: React.FC = () => {
                 <SectionLabel label="Menu Utama" />
                 <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} />
                 <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} />
-                
-                {(isWaliKelas || isCoach) && <SectionLabel label="Tugas Tambahan" />}
-                {isWaliKelas && (
-                    <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
-                )}
-                {isCoach && (
-                    <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
-                )}
-                
+                <SectionLabel label="Tugas Tambahan" />
+                <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
+                <SidebarItem id="extra" label="Ekstra" icon={Award} active={activeTab === 'extra'} onClick={() => handleSidebarClick('extra')} />
                 <SectionLabel label="Monitoring" />
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
                 <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
-                
-                {isWaliKelas && (
+                <SectionLabel label="Laporan" />
+                <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                <SectionLabel label="Sistem" />
+                <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
+                {userRole === 'admin' && (
                     <>
-                        <SectionLabel label="Laporan" />
-                        <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
-                    </>
-                )}
-                
-                {isAdmin && (
-                    <>
-                        <SectionLabel label="Sistem" />
-                        <SidebarItem id="settings" label="Pengaturan Lengkap" icon={Settings} active={activeTab === 'settings'} onClick={() => handleSidebarClick('settings')} />
-                    
                         <SectionLabel label="Admin Master" />
                         <SidebarItem id="students" label="Data Siswa" icon={Users} active={activeTab === 'students'} onClick={() => handleSidebarClick('students')} />
                         <SidebarItem id="teachers" label="Data Guru" icon={GraduationCap} active={activeTab === 'teachers'} onClick={() => handleSidebarClick('teachers')} />
@@ -939,7 +588,6 @@ const App: React.FC = () => {
                     </>
                 )}
             </nav>
-
             <div className="p-4 border-t border-white/5 bg-black/20">
                 <button onClick={handleLogout} className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-transparent border border-indigo-700/50 hover:bg-red-500/20 hover:border-red-500/50 text-indigo-200 hover:text-red-200 rounded-lg transition-all text-xs font-bold shadow-sm active:scale-95">
                     <LogOut size={14} /><span>Keluar Aplikasi</span>
@@ -947,17 +595,8 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-             <div 
-                className="absolute inset-0 z-0 opacity-20 pointer-events-none"
-                style={{
-                    backgroundImage: `url('https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?q=80&w=2672&auto=format&fit=crop')`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                }}
-             ></div>
-
+             <div className="absolute inset-0 z-0 opacity-20 pointer-events-none" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?q=80&w=2672&auto=format&fit=crop')`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
              <div className="lg:hidden bg-white/80 backdrop-blur-xl border-b border-gray-200 p-4 flex justify-between items-center sticky top-0 z-30">
                  <button onClick={() => setIsSidebarOpen(true)} className="text-gray-600"><Menu size={24} /></button>
                  <span className="font-bold text-gray-800">iGrade System</span>
@@ -965,7 +604,6 @@ const App: React.FC = () => {
              </div>
 
              <main className="flex-1 flex flex-col min-h-0 bg-white/50 relative overflow-hidden backdrop-blur-[2px]">
-                 
                  {(activeTab === 'dashboard' || activeTab === 'nilai_up') && (
                      <div className="flex flex-col h-full">
                          <div className="px-6 py-5 border-b border-gray-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white sticky top-0 z-20 shadow-sm">
@@ -975,265 +613,96 @@ const App: React.FC = () => {
                                      <span className="text-xs font-medium px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">{userData?.name || 'Administrator'}</span>
                                  </div>
                              </div>
-                             
                              <div className="flex flex-wrap gap-3 items-center">
-                                <select 
-                                    value={settings.activeSemester} 
-                                    onChange={e => {
-                                        const newSem = e.target.value as 'ganjil' | 'genap';
-                                        setSettings(prev => ({...prev, activeSemester: newSem}));
-                                    }}
-                                    className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
-                                >
+                                <select value={settings.activeSemester} onChange={e => { const newSem = e.target.value as 'ganjil' | 'genap'; setSettings(prev => ({...prev, activeSemester: newSem})); }} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
                                     <option value="ganjil">Semester Ganjil</option>
                                     <option value="genap">Semester Genap</option>
                                 </select>
-
-                                <select 
-                                    value={selectedClass} 
-                                    onChange={e => setSelectedClass(e.target.value)}
-                                    className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
-                                >
-                                    {userData?.classes?.length > 0 
-                                      ? userData.classes.map((c: string) => <option key={c} value={c}>{c}</option>)
-                                      : Array.from(new Set(students.map(s => s.kelas))).sort().map(c => <option key={c} value={c}>{c}</option>)
-                                    }
+                                <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
+                                    {userData?.classes?.length > 0 ? userData.classes.map((c: string) => <option key={c} value={c}>{c}</option>) : Array.from(new Set(students.map(s => s.kelas))).sort().map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
-                                
-                                <select 
-                                    value={selectedSubject} 
-                                    onChange={e => setSelectedSubject(e.target.value)}
-                                    className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm"
-                                >
+                                <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="bg-white border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 block p-2.5 font-bold shadow-sm">
                                     {userData?.subject && <option value={userData.subject}>{userData.subject}</option>}
                                     <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
                                     {userRole === 'admin' && teachers.map(t => t.subject).filter((v,i,a) => a.indexOf(v)===i).map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
-
                                 {activeTab === 'dashboard' && (
                                   <>
                                     <div className="h-8 w-px bg-gray-300 mx-1 hidden xl:block"></div>
-                                    <button onClick={() => loadData()} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold text-xs shadow-sm transition-colors" title="Muat Ulang Data Terbaru">
-                                        <RefreshCw size={14} /> Refresh
-                                    </button>
                                     <button onClick={handleManualSave} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all ${showSaveSuccess ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
-                                        {showSaveSuccess ? <CheckCircle size={14} /> : <Save size={14} />}
-                                        {showSaveSuccess ? 'Tersimpan' : 'Simpan Data'}
+                                        {showSaveSuccess ? <CheckCircle size={14} /> : <Save size={14} />} {showSaveSuccess ? 'Tersimpan' : 'Simpan Data'}
                                     </button>
-                                    <div className="h-8 w-px bg-gray-300 mx-1 hidden xl:block"></div>
-                                    <button onClick={handleDownloadGradeTablePDF} className="p-2.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors border border-red-200" title="Download Rekap PDF">
-                                        <Printer size={18} />
-                                    </button>
-                                    <button onClick={handleDownloadGradeTableExcel} className="p-2.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-medium transition-colors border border-green-200" title="Download Rekap Excel">
-                                        <FileSpreadsheet size={18} />
-                                    </button>
-                                    <div className="h-8 w-px bg-gray-300 mx-1 hidden xl:block"></div>
-                                    <button onClick={() => setIsConfigModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-xs transition-colors">
-                                        <Settings size={14} /> Config
-                                    </button>
-                                    <button onClick={() => { setEditingSession(null); setIsInputModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-[#007aff] text-white rounded-lg hover:bg-blue-600 font-bold text-xs shadow-md transition-colors">
-                                        <BookOpen size={14} /> Input Nilai
-                                    </button>
+                                    <button onClick={handleDownloadGradeTablePDF} className="p-2.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium transition-colors border border-red-200" title="Download Rekap PDF"><Printer size={18} /></button>
+                                    <button onClick={handleDownloadGradeTableExcel} className="p-2.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-medium transition-colors border border-green-200" title="Download Rekap Excel"><FileSpreadsheet size={18} /></button>
+                                    <button onClick={() => setIsConfigModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-xs transition-colors"><Settings size={14} /> Config</button>
+                                    <button onClick={() => { setEditingSession(null); setIsInputModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-[#007aff] text-white rounded-lg hover:bg-blue-600 font-bold text-xs shadow-md transition-colors"><BookOpen size={14} /> Input Nilai</button>
                                   </>
                                 )}
                              </div>
                          </div>
-
                          <div className="flex-1 overflow-auto custom-scrollbar bg-white/80">
-                             <GradeTable 
-                                students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []}
-                                selectedSemester={settings.activeSemester}
-                                activeFieldsMap={getActiveFieldsMap()}
-                                visibleChapters={getVisibleChapters()}
-                                visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig}
-                                assessmentHistory={assessmentHistory.filter(h => 
-                                    (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) &&
-                                    h.targetClass === selectedClass &&
-                                    h.semester === settings.activeSemester
-                                )}
-                                academicYear={settings.academicYear}
-                                onUpdateScore={handleUpdateScore}
-                                isEditable={true}
-                                showUpColumn={activeTab === 'nilai_up'} 
-                                upRanges={settings.upRanges}
-                             />
+                             <GradeTable students={selectedClass ? students.filter(s => s.kelas === selectedClass) : []} selectedSemester={settings.activeSemester} subjectName={selectedSubject} activeFieldsMap={getActiveFieldsMap()} visibleChapters={getVisibleChapters()} visibleFields={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} assessmentHistory={assessmentHistory.filter(h => (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')) && h.targetClass === selectedClass && h.semester === settings.activeSemester)} academicYear={settings.academicYear} onUpdateScore={handleUpdateScore} isEditable={true} showUpColumn={activeTab === 'nilai_up'} upRanges={settings.upRanges} unlockedCells={new Set()} getScoreInputClass={() => ''} />
                              {activeTab === 'dashboard' && (
-                                <AssessmentHistory 
-                                    history={assessmentHistory.filter(h => 
-                                        h.targetClass === selectedClass && 
-                                        h.semester === settings.activeSemester &&
-                                        (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam'))
-                                    )}
-                                    currentSemester={settings.activeSemester}
-                                    onEdit={(session) => { setEditingSession(session); setIsInputModalOpen(true); }}
-                                    onDelete={handleDeleteHistory}
-                                    onResetHistory={handleResetHistory}
-                                />
+                                <AssessmentHistory history={assessmentHistory.filter(h => h.targetClass === selectedClass && h.semester === settings.activeSemester && (h.targetSubject === selectedSubject || (!h.targetSubject && selectedSubject === 'Pendidikan Agama Islam')))} currentSemester={settings.activeSemester} onEdit={(session) => { setEditingSession(session); setIsInputModalOpen(true); }} onDelete={handleDeleteHistory} onResetHistory={handleResetHistory} />
                              )}
                          </div>
                      </div>
                  )}
-
-                 {activeTab === 'walikelas' && isWaliKelas && (
+                 {activeTab === 'walikelas' && (
                      <div className="bg-white h-full flex flex-col">
-                        <WaliKelasView 
-                            students={students}
-                            onUpdateStudents={handleUpdateStudentsBulk}
-                            semester={settings.activeSemester}
-                            teachers={teachers}
-                            settings={settings}
-                            assessmentHistory={assessmentHistory}
-                            dailyAttendance={dailyAttendance}
-                            onSaveDailyAttendance={handleSaveDailyAttendance}
-                            userRole={userRole || 'admin'}
-                            userData={userData}
-                        />
+                        <WaliKelasView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} userRole={userRole || 'admin'} userData={userData} />
                      </div>
                  )}
-
-                 {activeTab === 'extra' && isCoach && (
+                 {activeTab === 'extra' && (
                      <div className="bg-white h-full flex flex-col">
-                        <ExtraActivityView 
-                            students={students}
-                            onUpdateStudents={handleUpdateStudentsBulk}
-                            semester={settings.activeSemester}
-                            settings={settings}
-                            teachers={teachers}
-                            onUpdateSettings={handleSaveSettings}
-                            dailyAttendance={dailyAttendance}
-                            onSaveDailyAttendance={handleSaveDailyAttendance}
-                            userRole={userRole || 'admin'}
-                            userData={userData}
-                        />
+                        <ExtraActivityView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} settings={settings} teachers={teachers} onUpdateSettings={handleSaveSettings} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} onSync={handleSync} userRole={userRole || 'admin'} userData={userData} />
                      </div>
                  )}
-
-                 {activeTab === 'tanggungan' && (
-                     <MonitoringView 
-                        type="tanggungan" 
-                        students={students} 
-                        history={assessmentHistory} 
-                        currentSemester={settings.activeSemester} 
-                        academicYear={settings.academicYear} 
-                        subjectName="Semua Mapel" 
-                        teacherName="Monitoring Admin" 
-                     />
-                 )}
-
-                 {activeTab === 'remidi' && (
-                     <MonitoringView 
-                        type="remidi" 
-                        students={students} 
-                        history={assessmentHistory} 
-                        currentSemester={settings.activeSemester} 
-                        academicYear={settings.academicYear} 
-                        subjectName="Semua Mapel" 
-                        teacherName="Monitoring Admin" 
-                     />
-                 )}
-
-                 {activeTab === 'rapor_sisipan' && isWaliKelas && (
-                     <div className="flex-1 overflow-hidden h-full flex flex-col bg-white">
-                         <div className="px-6 py-4 border-b border-gray-200 bg-white/80 backdrop-blur-md sticky top-0 z-10">
-                             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                <Printer className="text-purple-600" /> Cetak Rapor Sisipan
-                             </h2>
-                             <p className="text-sm text-gray-500">Pilih kelas dan siswa untuk mencetak atau mendownload laporan hasil belajar tengah semester.</p>
-                         </div>
-                         <MidSemesterReportView 
-                            students={students} 
-                            teachers={teachers} 
-                            settings={settings} 
-                            assessmentHistory={assessmentHistory} 
-                            allowDownload={true} 
-                        />
+                 {activeTab === 'students' && (
+                     <div className="bg-white h-full flex flex-col">
+                        <StudentDataTable students={students} onAdd={() => { setEditingStudent(null); setIsAddStudentModalOpen(true); }} onEdit={(s) => { setEditingStudent(s); setIsAddStudentModalOpen(true); }} onDelete={handleDeleteStudent} onImport={handleImportStudents} onSync={handleSync} />
                      </div>
                  )}
-
-                 {activeTab === 'settings' && isAdmin && (
-                     <SettingsView 
-                        settings={settings}
-                        teachers={teachers}
-                        onSaveSettings={handleSaveSettings}
-                     />
+                 {activeTab === 'teachers' && (
+                     <div className="bg-white h-full flex flex-col">
+                        <TeacherDataView teachers={teachers} setTeachers={saveTeacher => { if (teachers.some(t => t.id === saveTeacher.id)) { setTeachers(prev => prev.map(t => t.id === saveTeacher.id ? saveTeacher : t)); } else { setTeachers(prev => [...prev, saveTeacher]); } api.saveTeacher(saveTeacher); }} availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} availableSubjects={settings.subjects} onSync={handleSync} />
+                     </div>
                  )}
-
-                 {/* Admin Only: Students & Teachers */}
-                 {activeTab === 'students' && isAdmin && (
-                     <StudentDataTable 
-                        students={students}
-                        onAdd={() => { setEditingStudent(null); setIsAddStudentModalOpen(true); }}
-                        onEdit={(s) => { setEditingStudent(s); setIsAddStudentModalOpen(true); }}
-                        onDelete={handleDeleteStudent}
-                        onImport={handleImportStudents}
-                        onSync={handleForceUpload}
-                     />
+                 {activeTab === 'monitor_teachers' && (
+                     <div className="bg-white h-full flex flex-col">
+                        <TeacherMonitoringView teachers={teachers} history={assessmentHistory} currentSemester={settings.activeSemester} availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} />
+                     </div>
                  )}
-                 {activeTab === 'teachers' && isAdmin && (
-                     <TeacherDataView 
-                        teachers={teachers}
-                        setTeachers={(t) => {
-                             if (teachers.some(existing => existing.id === t.id)) {
-                                 setTeachers(prev => prev.map(old => old.id === t.id ? t : old));
-                                 api.saveTeacher(t);
-                             } else {
-                                 setTeachers(prev => [...prev, t]);
-                                 api.saveTeacher(t);
-                             }
-                        }}
-                        availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
-                        availableSubjects={Array.from(new Set([...teachers.map(t => t.subject), ...(settings.subjects || [])])).sort()} 
-                        onSync={handleForceUpload}
-                     />
+                 {(activeTab === 'tanggungan' || activeTab === 'remidi') && (
+                     <div className="bg-white h-full flex flex-col">
+                        <MonitoringView type={activeTab as 'tanggungan' | 'remidi'} students={selectedClass ? students.filter(s => s.kelas === selectedClass) : students} history={assessmentHistory.filter(h => h.targetClass === selectedClass)} currentSemester={settings.activeSemester} subjectName={selectedSubject} teacherName={userData?.name} teacherNip={userData?.nip} principalName={settings.principalName} principalNip={settings.principalNip} academicYear={settings.academicYear} />
+                     </div>
                  )}
-                 {activeTab === 'monitor_teachers' && isAdmin && (
-                     <TeacherMonitoringView 
-                        teachers={teachers}
-                        history={assessmentHistory}
-                        currentSemester={settings.activeSemester}
-                        availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
-                     />
+                 {activeTab === 'rapor_sisipan' && (
+                     <div className="bg-white h-full flex flex-col">
+                        <MidSemesterReportView students={students} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} />
+                     </div>
                  )}
-                 {activeTab === 'reset' && isAdmin && (
-                     <ResetDataView 
-                        availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
-                        currentSemester={settings.activeSemester}
-                        onResetClass={handleResetClass}
-                     />
+                 {activeTab === 'reset' && (
+                     <div className="bg-white h-full flex flex-col">
+                        <ResetDataView availableClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} currentSemester={settings.activeSemester} onResetClass={handleResetClass} />
+                     </div>
                  )}
-
+                 {activeTab === 'settings' && (
+                     <div className="bg-white h-full flex flex-col">
+                        <SettingsView settings={settings} teachers={teachers} onSaveSettings={handleSaveSettings} />
+                     </div>
+                 )}
              </main>
         </div>
 
-        {/* --- GLOBAL MODALS --- */}
-        <InputGradeModal 
-            isOpen={isInputModalOpen}
-            onClose={() => setIsInputModalOpen(false)}
-            onSaveSession={handleSaveSession}
-            currentSemester={settings.activeSemester}
-            targetClass={selectedClass}
-            subjectName={selectedSubject}
-            initialData={editingSession}
-            history={assessmentHistory}
-        />
-
-        <AddStudentModal 
-            isOpen={isAddStudentModalOpen}
-            onClose={() => setIsAddStudentModalOpen(false)}
-            onSave={handleSaveStudent}
-            initialData={editingStudent}
-            existingClasses={Array.from(new Set(students.map(s => s.kelas))).sort()}
-        />
-
-        <ChapterConfigModal 
-            isOpen={isConfigModalOpen}
-            onClose={() => setIsConfigModalOpen(false)}
-            subjectName={selectedSubject}
-            semester={settings.activeSemester}
-            initialConfig={getVisibleChapters()}
-            initialFieldConfig={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig}
-            onSave={handleSaveChapterConfig}
-        />
+        <InputGradeModal isOpen={isInputModalOpen} onClose={() => setIsInputModalOpen(false)} onSaveSession={handleSaveSession} currentSemester={settings.activeSemester} targetClass={selectedClass} subjectName={selectedSubject} initialData={editingSession} history={assessmentHistory} />
+        <AddStudentModal isOpen={isAddStudentModalOpen} onClose={() => setIsAddStudentModalOpen(false)} onSave={handleSaveStudent} initialData={editingStudent} existingClasses={Array.from(new Set(students.map(s => s.kelas))).sort()} />
+        <ChapterConfigModal isOpen={isConfigModalOpen} onClose={() => setIsConfigModalOpen(false)} subjectName={selectedSubject} semester={settings.activeSemester} initialConfig={subjectChapterConfigs[selectedSubject] || settings.visibleChapters} initialFieldConfig={subjectFieldConfigs[selectedSubject] || settings.midSemesterFieldConfig} onSave={handleSaveChapterConfig} />
+        <button onClick={() => setIsGuideOpen(true)} className="fixed bottom-6 right-6 p-3 bg-[#007aff] text-white rounded-full shadow-xl hover:bg-blue-600 transition-transform hover:scale-110 z-50 animate-bounce-slow" title="Panduan Penggunaan">
+            <HelpCircle size={24} />
+        </button>
+        <GuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} role={userRole} />
     </div>
   );
 };
