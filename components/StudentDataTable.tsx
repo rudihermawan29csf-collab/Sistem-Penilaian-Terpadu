@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { Student } from '../types';
-import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter, CloudUpload, AlertCircle } from 'lucide-react';
+import { Edit2, Trash2, Search, Plus, Upload, FileSpreadsheet, Filter, CloudUpload, AlertCircle, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { createEmptySemesterData } from '../utils';
 
@@ -11,7 +11,7 @@ interface StudentDataTableProps {
   onEdit: (student: Student) => void;
   onDelete: (id: number) => void;
   onImport: (students: Student[]) => void;
-  onSync: () => void; // Added prop
+  onSync: () => void;
 }
 
 const StudentDataTable: React.FC<StudentDataTableProps> = ({ 
@@ -23,7 +23,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
   onSync 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClassFilter, setSelectedClassFilter] = useState(''); // Filter Class State
+  const [selectedClassFilter, setSelectedClassFilter] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get unique classes for filter dropdown
@@ -32,10 +32,9 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
     return Array.from(classes).sort();
   }, [students]);
 
-  // Filter Logic (Search Term AND Class Filter)
+  // Filter Logic
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
-        // Robust safety checks for data integrity to prevent crashes
         const name = s.name ? String(s.name).toLowerCase() : '';
         const nis = s.nis ? String(s.nis).toLowerCase() : '';
         const nisn = s.nisn ? String(s.nisn).toLowerCase() : '';
@@ -50,13 +49,11 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
 
         return matchesSearch && matchesClass;
     }).sort((a, b) => {
-        // Safe sort
         const classA = a.kelas || '';
         const classB = b.kelas || '';
         const nameA = a.name || '';
         const nameB = b.name || '';
 
-        // Sort by Class then Name
         if (classA === classB) return nameA.localeCompare(nameB);
         return classA.localeCompare(classB);
     });
@@ -87,7 +84,6 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
             if (!arrayBuffer) return;
 
             const wb = XLSX.read(arrayBuffer, { type: 'array' });
-            
             if (wb.SheetNames.length === 0) {
                 alert("Gagal: File Excel tidak memiliki sheet.");
                 return;
@@ -95,8 +91,6 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
 
             const wsname = wb.SheetNames[0];
             const ws = wb.Sheets[wsname];
-            
-            // Convert to Array of Arrays to find header row dynamically
             const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
             if (!rawData || rawData.length === 0) {
@@ -104,61 +98,67 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                  return;
             }
 
-            // 1. Find Header Row
+            // Enhanced Header Detection
             let headerRowIndex = -1;
-            const targetHeaders = ['nama', 'kelas']; // Key columns to identify header row
-            
-            for (let i = 0; i < Math.min(rawData.length, 10); i++) {
-                const rowStr = rawData[i].map(c => String(c).toLowerCase()).join(' ');
-                if (targetHeaders.every(h => rowStr.includes(h))) {
+            // Keywords to identify columns (normalized to lowercase)
+            const keywords = {
+                name: ['nama', 'nama siswa', 'nama lengkap', 'student name'],
+                kelas: ['kelas', 'rombel', 'class'],
+                nis: ['nis', 'nomor induk'],
+                nisn: ['nisn'],
+                gender: ['l/p', 'gender', 'jenis kelamin', 'jk']
+            };
+
+            // Scan first 20 rows for header
+            for (let i = 0; i < Math.min(rawData.length, 20); i++) {
+                const rowStr = rawData[i].map(c => String(c).toLowerCase().trim()).join(' ');
+                // Check if row contains at least name and class keywords
+                const hasName = keywords.name.some(k => rowStr.includes(k));
+                const hasClass = keywords.kelas.some(k => rowStr.includes(k));
+                
+                if (hasName && hasClass) {
                     headerRowIndex = i;
                     break;
                 }
             }
 
             if (headerRowIndex === -1) {
-                // Fallback: Check if row 0 has at least 'Nama' or 'Name'
-                const row0 = rawData[0].map(c => String(c).toLowerCase()).join(' ');
-                if (row0.includes('nama') || row0.includes('name')) {
-                    headerRowIndex = 0;
-                } else {
-                    alert("Gagal: Tidak dapat menemukan baris header (Nama, Kelas, NIS). Pastikan format sesuai template.");
-                    return;
-                }
+                alert("Gagal: Tidak dapat menemukan baris header (Kolom 'Nama' dan 'Kelas' wajib ada). Silakan gunakan template.");
+                return;
             }
 
-            // 2. Map Columns
+            // Map Columns based on found header row
             const headers = rawData[headerRowIndex].map(h => String(h).trim().toLowerCase());
             const colMap = {
-                nis: headers.findIndex(h => h === 'nis' || h.includes('induk')),
-                nisn: headers.findIndex(h => h === 'nisn'),
-                name: headers.findIndex(h => h === 'nama' || h.includes('nama siswa') || h.includes('nama lengkap')),
-                kelas: headers.findIndex(h => h === 'kelas' || h.includes('rombel')),
-                gender: headers.findIndex(h => h === 'gender' || h === 'l/p' || h.includes('jenis') || h === 'jk')
+                nis: headers.findIndex(h => keywords.nis.some(k => h.includes(k) || h === k)),
+                nisn: headers.findIndex(h => keywords.nisn.some(k => h.includes(k) || h === k)),
+                name: headers.findIndex(h => keywords.name.some(k => h.includes(k) || h === k)),
+                kelas: headers.findIndex(h => keywords.kelas.some(k => h.includes(k) || h === k)),
+                gender: headers.findIndex(h => keywords.gender.some(k => h.includes(k) || h === k))
             };
 
             if (colMap.name === -1 || colMap.kelas === -1) {
-                alert("Gagal: Kolom 'Nama' dan 'Kelas' wajib ada.");
+                alert("Gagal: Kolom 'Nama' dan 'Kelas' tidak terdeteksi pada baris header.");
                 return;
             }
 
             const parsedStudents: Student[] = [];
             let skippedCount = 0;
 
-            // 3. Process Data Rows
+            // Process Data Rows
             for (let i = headerRowIndex + 1; i < rawData.length; i++) {
                 const row = rawData[i];
                 if (!row || row.length === 0) continue;
 
                 const nameVal = row[colMap.name];
-                const kelasVal = row[colMap.kelas];
-
+                
                 // Skip if name is empty
                 if (!nameVal) {
                     skippedCount++;
                     continue;
                 }
 
+                const kelasVal = row[colMap.kelas] || 'UNASSIGNED';
                 const nisVal = colMap.nis !== -1 ? row[colMap.nis] : undefined;
                 const nisnVal = colMap.nisn !== -1 ? row[colMap.nisn] : undefined;
                 const genderVal = colMap.gender !== -1 ? row[colMap.gender] : undefined;
@@ -179,7 +179,7 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                 }
 
                 parsedStudents.push({
-                    id: Date.now() + i + Math.floor(Math.random() * 1000), // Ensure unique ID
+                    id: Date.now() + i + Math.floor(Math.random() * 10000),
                     no: i - headerRowIndex,
                     nis: nisStr,
                     nisn: nisnStr,
@@ -222,8 +222,6 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
     }
 
     reader.readAsArrayBuffer(file);
-    
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -265,16 +263,14 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                    {/* Template Button */}
                     <button 
                         onClick={handleDownloadTemplate}
                         className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-colors"
                         title="Download Template Excel"
                     >
-                        <FileSpreadsheet size={20} />
+                        <Download size={20} />
                     </button>
 
-                    {/* Import Button */}
                     <div className="relative">
                         <input
                             type="file"
@@ -292,7 +288,6 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                         </button>
                     </div>
 
-                    {/* Add Button */}
                     <button 
                         onClick={onAdd}
                         className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm w-full sm:w-auto justify-center"
@@ -301,13 +296,12 @@ const StudentDataTable: React.FC<StudentDataTableProps> = ({
                         <span>Tambah</span>
                     </button>
 
-                    {/* SAVE / SYNC BUTTON */}
                     <button 
                         onClick={onSync}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-bold shadow-md w-full sm:w-auto justify-center animate-pulse"
                     >
                         <CloudUpload size={16} />
-                        <span>Simpan ke Server</span>
+                        <span className="hidden sm:inline">Simpan ke Server</span>
                     </button>
                 </div>
             </div>

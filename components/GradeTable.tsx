@@ -1,13 +1,13 @@
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Student, ChapterKey, FormativeKey, SemesterKey, GradingSession, UpRange, SemesterData } from '../types';
-import { calculateChapterAverage, calculateFinalGrade, formatNumber, createEmptySemesterData } from '../utils';
-import { Info, X, Calendar, FileText, Tag, BookOpen, Star } from 'lucide-react';
+import { calculateChapterAverage, calculateFinalGrade } from '../utils';
+import { Info, X } from 'lucide-react';
 
 interface GradeTableProps {
   students: Student[];
   selectedSemester: SemesterKey;
-  subjectName: string; // Added prop to identify current subject context
+  subjectName: string;
   activeFieldsMap: Record<ChapterKey, FormativeKey[]>;
   visibleChapters: Record<ChapterKey, boolean>;
   visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>;
@@ -18,6 +18,130 @@ interface GradeTableProps {
   showUpColumn?: boolean;
   upRanges?: UpRange[];
 }
+
+// Helper: Get correct grades based on subject
+const getStudentGrades = (student: Student, subjectName: string, selectedSemester: SemesterKey): SemesterData => {
+    if (subjectName === 'Pendidikan Agama Islam') {
+        return student.grades[selectedSemester];
+    } else {
+        return student.gradesBySubject?.[subjectName]?.[selectedSemester] || {
+            bab1: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+            bab2: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+            bab3: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+            bab4: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+            bab5: { f1: null, f2: null, f3: null, f4: null, f5: null, sum: null },
+            kts: null, sas: null, nilaiUp: null
+        };
+    }
+};
+
+const getFieldsForChapter = (chapKey: ChapterKey, visibleFields?: Record<ChapterKey, Record<FormativeKey, boolean>>, showUpColumn?: boolean) => {
+    const standardFields: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
+    if (showUpColumn) return standardFields;
+    if (visibleFields && visibleFields[chapKey]) {
+        return standardFields.filter(f => visibleFields[chapKey][f]);
+    }
+    return standardFields;
+};
+
+// --- MEMOIZED ROW COMPONENT ---
+const GradeTableRow = React.memo(({ 
+    student, 
+    index, 
+    chapters, 
+    showUpColumn, 
+    subjectName, 
+    selectedSemester, 
+    activeFieldsMap, 
+    visibleChapters, 
+    visibleFields, 
+    upRanges, 
+    isEditable, 
+    onUpdateScore,
+    isCellActive,
+    getScoreInputClass 
+}: any) => {
+    
+    const semesterData = getStudentGrades(student, subjectName, selectedSemester);
+    const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
+    
+    let displayUp: number | null = semesterData.nilaiUp;
+    if (showUpColumn && displayUp === null && finalGrade !== null && upRanges.length > 0) {
+        const range = upRanges.find((r: UpRange) => finalGrade >= r.min && finalGrade <= r.max);
+        if (range) {
+            displayUp = range.value;
+        }
+    }
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>, chapter: any, field: any) => {
+        const val = e.target.value;
+        const numVal = val === '' ? null : parseFloat(val);
+        if (numVal !== null && (numVal < 0 || numVal > 100)) return;
+        onUpdateScore(student.id, chapter, field, numVal);
+    };
+
+    return (
+        <tr className="group hover:bg-blue-50/30 transition-colors border-b border-gray-50">
+            <td className="p-2 text-center text-xs text-gray-400 font-medium sticky left-0 bg-white group-hover:bg-blue-50/30 border-r border-gray-100 z-10">{index + 1}</td>
+            <td className="p-2 text-xs font-mono text-gray-500 border-r border-gray-100 pl-4 sticky left-10 bg-white group-hover:bg-blue-50/30 z-10">{student.nis}</td>
+            <td className="p-2 text-sm font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap pl-4 sticky left-[112px] bg-white group-hover:bg-blue-50/30 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
+
+            {chapters.map((chap: any) => {
+                const fieldsToShow = getFieldsForChapter(chap.key, visibleFields, showUpColumn);
+                return (
+                <React.Fragment key={chap.key}>
+                    {!showUpColumn && fieldsToShow.map((f: any) => {
+                        const unlocked = isCellActive(chap.key, f);
+                        return (
+                        <td key={f} className={`p-1 border-r border-gray-50 text-center ${unlocked ? 'bg-blue-50/30' : ''}`}>
+                            {unlocked ? (
+                                <input type="number" value={semesterData[chap.key][f] ?? ''} onChange={(e) => handleInputChange(e, chap.key, f)} className={getScoreInputClass(semesterData[chap.key][f], true)} placeholder="-" />
+                            ) : <span className="text-xs text-gray-300 block py-1.5">{semesterData[chap.key][f] ?? '-'}</span>}
+                        </td>
+                    )})}
+                    <td className="p-1 border-r border-gray-100 text-center bg-gray-50/30">
+                        <span className={`text-xs font-bold ${
+                            (() => {
+                                const avg = calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []);
+                                if (avg === null) return 'text-gray-300';
+                                if (avg < 75) return 'text-red-500';
+                                return 'text-gray-600';
+                            })()
+                        }`}>
+                            {calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []) ?? '-'}
+                        </span>
+                    </td>
+                </React.Fragment>
+            )})}
+            
+            <td className={`p-1 border-r border-gray-50 text-center ${isCellActive('kts', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
+                {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, 'kts', null)} className={getScoreInputClass(semesterData.kts, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.kts ?? '-'}</span>}
+            </td>
+            <td className={`p-1 border-r border-gray-100 text-center ${isCellActive('sas', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
+                {isCellActive('sas', null) && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, 'sas', null)} className={getScoreInputClass(semesterData.sas, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.sas ?? '-'}</span>}
+            </td>
+            
+            <td className={`p-2 border-l border-gray-200 text-center font-bold text-sm ${!showUpColumn ? 'sticky right-0 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-slate-50 group-hover:bg-blue-100/50' : 'bg-blue-50/50'} ${finalGrade && finalGrade < 75 ? 'text-red-600' : 'text-slate-900'}`}>
+                {finalGrade ?? '-'}
+            </td>
+
+            {showUpColumn && (
+                <td className="p-1 border-l border-gray-200 text-center sticky right-0 z-10 bg-white group-hover:bg-blue-50/30 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                    <input 
+                        type="number" 
+                        value={displayUp ?? ''} 
+                        onChange={(e) => handleInputChange(e, 'up', null)}
+                        className={`w-full text-center py-1.5 text-sm font-bold focus:outline-none rounded-md transition-all ${
+                            displayUp !== null ? 'text-orange-700 bg-orange-50/50' : 'bg-transparent text-gray-800'
+                        }`}
+                        placeholder="-" 
+                        disabled={!isEditable}
+                    />
+                </td>
+            )}
+        </tr>
+    );
+});
 
 const GradeTable: React.FC<GradeTableProps> = ({
   students,
@@ -44,14 +168,12 @@ const GradeTable: React.FC<GradeTableProps> = ({
   ];
 
   const chapters = allChapters.filter(c => visibleChapters[c.key]);
-  const standardFields: FormativeKey[] = ['f1', 'f2', 'f3', 'f4', 'f5', 'sum'];
 
-  const isCellActive = (chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null) => {
+  const isCellActive = useCallback((chapter: ChapterKey | 'kts' | 'sas' | 'up', field: FormativeKey | null) => {
     if (!isEditable) return false;
     if (chapter === 'up') return true; 
 
     return assessmentHistory.some(h => {
-        // STRICT CHECK: Ensure history matches current subject context
         const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
         if (historySubject !== subjectName) return false;
 
@@ -60,11 +182,10 @@ const GradeTable: React.FC<GradeTableProps> = ({
         if (h.type === 'sas') return chapter === 'sas';
         return false;
     });
-  };
+  }, [isEditable, assessmentHistory, subjectName]);
 
   const getSessionForHeader = (chapter: ChapterKey | 'kts' | 'sas', field: FormativeKey | null) => {
       return assessmentHistory.find(h => {
-        // STRICT CHECK: Ensure history matches current subject context
         const historySubject = h.targetSubject || 'Pendidikan Agama Islam';
         if (historySubject !== subjectName) return undefined;
 
@@ -75,8 +196,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
       });
   };
 
-  const getScoreInputClass = (val: number | null, isActive: boolean) => {
-    // Add subtle blue tint if active/unlocked
+  const getScoreInputClass = useCallback((val: number | null, isActive: boolean) => {
     const bgBase = isActive ? "bg-blue-50/50 hover:bg-blue-50" : "bg-transparent";
     const baseClass = `w-full text-center py-1.5 text-sm font-medium focus:outline-none rounded-md transition-all placeholder-gray-200 ${bgBase}`;
     
@@ -84,41 +204,10 @@ const GradeTable: React.FC<GradeTableProps> = ({
     if (val >= 85) return `${baseClass} text-green-700 font-bold bg-green-50/50 focus:ring-2 focus:ring-green-500/50`;
     if (val >= 70) return `${baseClass} text-gray-900 font-bold focus:ring-2 focus:ring-blue-500/50`;
     return `${baseClass} text-red-600 font-bold bg-red-50/50 focus:ring-2 focus:ring-red-500/50`;
-  };
+  }, []);
 
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement>, 
-    studentId: number, 
-    chapter: ChapterKey | 'kts' | 'sas' | 'up', 
-    field: FormativeKey | null
-  ) => {
-    const val = e.target.value;
-    const numVal = val === '' ? null : parseFloat(val);
-    if (numVal !== null && (numVal < 0 || numVal > 100)) return;
-    onUpdateScore(studentId, chapter, field, numVal);
-  };
-
-  const getFieldsForChapter = (chapKey: ChapterKey) => {
-      if (showUpColumn) return standardFields;
-      if (visibleFields && visibleFields[chapKey]) {
-          return standardFields.filter(f => visibleFields[chapKey][f]);
-      }
-      return standardFields;
-  };
-
-  // --- Helper to get correct grades object based on subject ---
-  const getStudentGrades = (student: Student): SemesterData => {
-      if (subjectName === 'Pendidikan Agama Islam') {
-          return student.grades[selectedSemester];
-      } else {
-          return student.gradesBySubject?.[subjectName]?.[selectedSemester] || createEmptySemesterData();
-      }
-  };
-
-  // --- Dynamic Header Colors ---
   const getHeaderStyle = (type: 'TP' | 'EVAL' | 'UP' | 'NA', index: number = 0) => {
       if (showUpColumn && type !== 'UP') return "bg-orange-600 border-orange-500"; 
-
       if (type === 'UP') return "bg-orange-700 border-orange-600";
       if (type === 'EVAL') return "bg-slate-700 border-slate-600"; 
       if (type === 'NA') return "bg-slate-800 border-slate-700";
@@ -149,7 +238,6 @@ const GradeTable: React.FC<GradeTableProps> = ({
 
   return (
     <div className="flex flex-col relative h-full">
-      {/* Detail Popover */}
       {selectedSession && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/10 backdrop-blur-sm" onClick={() => setSelectedSession(null)}>
             <div className="bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-scale-in border border-white/20 ring-1 ring-black/5" onClick={e => e.stopPropagation()}>
@@ -172,7 +260,6 @@ const GradeTable: React.FC<GradeTableProps> = ({
         </div>
       )}
 
-      {/* Table Container */}
       <div className="overflow-auto custom-scrollbar relative h-full">
         <table className="border-collapse w-full min-w-max">
           <thead className="sticky top-0 z-20 shadow-sm">
@@ -182,7 +269,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
               <th rowSpan={2} className={`p-3 min-w-[250px] border-b border-r text-[10px] font-bold text-white uppercase text-left pl-4 sticky left-[112px] z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${showUpColumn ? 'bg-orange-600' : 'bg-blue-600'}`}>Nama Siswa</th>
               
               {chapters.map((chap, index) => {
-                  const fieldsToShow = getFieldsForChapter(chap.key);
+                  const fieldsToShow = getFieldsForChapter(chap.key, visibleFields, showUpColumn);
                   const colSpan = showUpColumn ? 1 : (fieldsToShow.length + 1);
                   return (
                     <th key={chap.key} colSpan={colSpan} className={`p-2 border-b border-r text-[10px] font-bold text-white uppercase text-center tracking-wider ${getHeaderStyle('TP', index)}`}>{chap.label}</th>
@@ -200,7 +287,7 @@ const GradeTable: React.FC<GradeTableProps> = ({
             
             <tr>
                {chapters.map((chap, index) => {
-                  const fieldsToShow = getFieldsForChapter(chap.key);
+                  const fieldsToShow = getFieldsForChapter(chap.key, visibleFields, showUpColumn);
                   const tpHeaderStyle = getHeaderStyle('TP', index);
                   
                   return (
@@ -224,81 +311,25 @@ const GradeTable: React.FC<GradeTableProps> = ({
           </thead>
           
           <tbody className="bg-white">
-             {students.map((student, index) => {
-                // DYNAMIC FETCH BASED ON SUBJECT NAME
-                const semesterData = getStudentGrades(student);
-                const finalGrade = calculateFinalGrade(semesterData, activeFieldsMap, visibleChapters);
-                
-                let displayUp: number | null = semesterData.nilaiUp;
-                if (showUpColumn && displayUp === null && finalGrade !== null && upRanges.length > 0) {
-                    const range = upRanges.find(r => finalGrade >= r.min && finalGrade <= r.max);
-                    if (range) {
-                        displayUp = range.value;
-                    }
-                }
-
-                return (
-                    <tr key={student.id} className="group hover:bg-blue-50/30 transition-colors border-b border-gray-50">
-                       <td className="p-2 text-center text-xs text-gray-400 font-medium sticky left-0 bg-white group-hover:bg-blue-50/30 border-r border-gray-100 z-10">{index + 1}</td>
-                       <td className="p-2 text-xs font-mono text-gray-500 border-r border-gray-100 pl-4 sticky left-10 bg-white group-hover:bg-blue-50/30 z-10">{student.nis}</td>
-                       <td className="p-2 text-sm font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap pl-4 sticky left-[112px] bg-white group-hover:bg-blue-50/30 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">{student.name}</td>
-
-                       {chapters.map(chap => {
-                           const fieldsToShow = getFieldsForChapter(chap.key);
-                           return (
-                           <React.Fragment key={chap.key}>
-                               {!showUpColumn && fieldsToShow.map(f => {
-                                   const unlocked = isCellActive(chap.key, f);
-                                   return (
-                                   <td key={f} className={`p-1 border-r border-gray-50 text-center ${unlocked ? 'bg-blue-50/30' : ''}`}>
-                                       {unlocked ? (
-                                           <input type="number" value={semesterData[chap.key][f] ?? ''} onChange={(e) => handleInputChange(e, student.id, chap.key, f)} className={getScoreInputClass(semesterData[chap.key][f], true)} placeholder="-" />
-                                       ) : <span className="text-xs text-gray-300 block py-1.5">{semesterData[chap.key][f] ?? '-'}</span>}
-                                   </td>
-                               )})}
-                               <td className="p-1 border-r border-gray-100 text-center bg-gray-50/30">
-                                  <span className={`text-xs font-bold ${
-                                      (() => {
-                                          const avg = calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []);
-                                          if (avg === null) return 'text-gray-300';
-                                          if (avg < 75) return 'text-red-500';
-                                          return 'text-gray-600';
-                                      })()
-                                  }`}>
-                                      {calculateChapterAverage(semesterData[chap.key], activeFieldsMap[chap.key] || []) ?? '-'}
-                                  </span>
-                               </td>
-                           </React.Fragment>
-                       )})}
-                       
-                       <td className={`p-1 border-r border-gray-50 text-center ${isCellActive('kts', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
-                            {isCellActive('kts', null) && !showUpColumn ? <input type="number" value={semesterData.kts ?? ''} onChange={(e) => handleInputChange(e, student.id, 'kts', null)} className={getScoreInputClass(semesterData.kts, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.kts ?? '-'}</span>}
-                       </td>
-                       <td className={`p-1 border-r border-gray-100 text-center ${isCellActive('sas', null) && !showUpColumn ? 'bg-blue-50/30' : ''}`}>
-                            {isCellActive('sas', null) && !showUpColumn ? <input type="number" value={semesterData.sas ?? ''} onChange={(e) => handleInputChange(e, student.id, 'sas', null)} className={getScoreInputClass(semesterData.sas, true)} placeholder="-" /> : <span className="text-xs text-gray-500 font-medium">{semesterData.sas ?? '-'}</span>}
-                       </td>
-                       
-                       <td className={`p-2 border-l border-gray-200 text-center font-bold text-sm ${!showUpColumn ? 'sticky right-0 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-slate-50 group-hover:bg-blue-100/50' : 'bg-blue-50/50'} ${finalGrade && finalGrade < 75 ? 'text-red-600' : 'text-slate-900'}`}>
-                            {finalGrade ?? '-'}
-                       </td>
-
-                       {showUpColumn && (
-                           <td className="p-1 border-l border-gray-200 text-center sticky right-0 z-10 bg-white group-hover:bg-blue-50/30 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                                <input 
-                                    type="number" 
-                                    value={displayUp ?? ''} 
-                                    onChange={(e) => handleInputChange(e, student.id, 'up', null)}
-                                    className={`w-full text-center py-1.5 text-sm font-bold focus:outline-none rounded-md transition-all ${
-                                        displayUp !== null ? 'text-orange-700 bg-orange-50/50' : 'bg-transparent text-gray-800'
-                                    }`}
-                                    placeholder="-" 
-                                    disabled={!isEditable}
-                                />
-                           </td>
-                       )}
-                    </tr>
-                );
-             })}
+             {students.map((student, index) => (
+                 <GradeTableRow 
+                    key={student.id}
+                    student={student}
+                    index={index}
+                    chapters={chapters}
+                    showUpColumn={showUpColumn}
+                    subjectName={subjectName}
+                    selectedSemester={selectedSemester}
+                    activeFieldsMap={activeFieldsMap}
+                    visibleChapters={visibleChapters}
+                    visibleFields={visibleFields}
+                    upRanges={upRanges}
+                    isEditable={isEditable}
+                    onUpdateScore={onUpdateScore}
+                    isCellActive={isCellActive}
+                    getScoreInputClass={getScoreInputClass}
+                 />
+             ))}
           </tbody>
         </table>
       </div>
