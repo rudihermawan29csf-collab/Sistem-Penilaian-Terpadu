@@ -628,7 +628,7 @@ export const App: React.FC = () => {
                 <SidebarItem id="dashboard" label="Input Nilai" icon={LayoutDashboard} active={activeTab === 'dashboard'} onClick={() => handleSidebarClick('dashboard')} />
                 <SidebarItem id="nilai_up" label="Nilai UP" icon={Star} active={activeTab === 'nilai_up'} onClick={() => handleSidebarClick('nilai_up')} />
                 
-                <SectionLabel label="Tugas Tambahan" />
+                {(canAccessWaliKelas || canAccessExtra) && <SectionLabel label="Tugas Tambahan" />}
                 {canAccessWaliKelas && (
                     <SidebarItem id="walikelas" label="Wali Kelas" icon={ClipboardList} active={activeTab === 'walikelas'} onClick={() => handleSidebarClick('walikelas')} />
                 )}
@@ -640,9 +640,11 @@ export const App: React.FC = () => {
                 <SidebarItem id="tanggungan" label="Tanggungan" icon={AlertCircle} active={activeTab === 'tanggungan'} onClick={() => handleSidebarClick('tanggungan')} />
                 <SidebarItem id="remidi" label="Remidi" icon={RefreshCw} active={activeTab === 'remidi'} onClick={() => handleSidebarClick('remidi')} />
                 
-                <SectionLabel label="Laporan" />
                 {canAccessWaliKelas && (
-                    <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                    <>
+                        <SectionLabel label="Laporan" />
+                        <SidebarItem id="rapor_sisipan" label="Rapor Sisipan" icon={Printer} active={activeTab === 'rapor_sisipan'} onClick={() => handleSidebarClick('rapor_sisipan')} />
+                    </>
                 )}
                 
                 {userRole === 'admin' && (
@@ -724,12 +726,12 @@ export const App: React.FC = () => {
                          </div>
                      </div>
                  )}
-                 {activeTab === 'walikelas' && (
+                 {activeTab === 'walikelas' && canAccessWaliKelas && (
                      <div className="bg-white h-full flex flex-col">
                         <WaliKelasView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} userRole={userRole || 'admin'} userData={userData} />
                      </div>
                  )}
-                 {activeTab === 'extra' && (
+                 {activeTab === 'extra' && canAccessExtra && (
                      <div className="bg-white h-full flex flex-col">
                         <ExtraActivityView students={students} onUpdateStudents={handleUpdateStudentsBulk} semester={settings.activeSemester} settings={settings} teachers={teachers} onUpdateSettings={handleSaveSettings} dailyAttendance={dailyAttendance} onSaveDailyAttendance={handleSaveDailyAttendance} onSync={handleSync} userRole={userRole || 'admin'} userData={userData} />
                      </div>
@@ -754,7 +756,7 @@ export const App: React.FC = () => {
                         <MonitoringView type={activeTab as 'tanggungan' | 'remidi'} students={selectedClass ? students.filter(s => s.kelas === selectedClass) : students} history={assessmentHistory.filter(h => h.targetClass === selectedClass)} currentSemester={settings.activeSemester} subjectName={selectedSubject} teacherName={userData?.name} teacherNip={userData?.nip} principalName={settings.principalName} principalNip={settings.principalNip} academicYear={settings.academicYear} />
                      </div>
                  )}
-                 {activeTab === 'rapor_sisipan' && (
+                 {activeTab === 'rapor_sisipan' && canAccessWaliKelas && (
                      <div className="bg-white h-full flex flex-col">
                         <MidSemesterReportView students={students} teachers={teachers} settings={settings} assessmentHistory={assessmentHistory} />
                      </div>
